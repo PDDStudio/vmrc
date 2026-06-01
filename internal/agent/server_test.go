@@ -18,7 +18,7 @@ func newTestServer(t *testing.T) (*Server, string) {
 	if err := os.WriteFile(filepath.Join(base, "error.log"), []byte("boom"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	return &Server{Token: "secret", Capturer: fakeCapturer{png: []byte("PNGDATA")}, BaseDir: base}, base
+	return &Server{Token: "secret", Capturer: fakeCapturer{png: []byte("PNGDATA")}, BaseDir: base, ReadGlobs: []string{"*.log"}}, base
 }
 
 func TestScreenshotRequiresToken(t *testing.T) {
@@ -42,21 +42,51 @@ func TestScreenshotOK(t *testing.T) {
 	}
 }
 
-func TestLogsServesAllowlistedFile(t *testing.T) {
+func TestReadServesGlobMatchedFile(t *testing.T) {
 	s, _ := newTestServer(t)
 	rec := httptest.NewRecorder()
-	s.Handler().ServeHTTP(rec, httptest.NewRequest("GET", "/logs/error.log?token=secret", nil))
+	s.Handler().ServeHTTP(rec, httptest.NewRequest("GET", "/read/error.log?token=secret", nil))
 	if rec.Code != http.StatusOK || rec.Body.String() != "boom" {
 		t.Fatalf("code=%d body=%q", rec.Code, rec.Body.String())
 	}
 }
 
-func TestLogsBlocksTraversal(t *testing.T) {
+func TestLogsAliasStillServes(t *testing.T) {
 	s, _ := newTestServer(t)
 	rec := httptest.NewRecorder()
-	s.Handler().ServeHTTP(rec, httptest.NewRequest("GET", "/logs/..%2f..%2fsecret?token=secret", nil))
+	s.Handler().ServeHTTP(rec, httptest.NewRequest("GET", "/logs/error.log?token=secret", nil))
+	if rec.Code != http.StatusOK || rec.Body.String() != "boom" {
+		t.Fatalf("alias /logs/ should still serve: code=%d body=%q", rec.Code, rec.Body.String())
+	}
+}
+
+func TestReadBlocksNonMatchingGlob(t *testing.T) {
+	s, base := newTestServer(t)
+	if err := os.WriteFile(filepath.Join(base, "passwd"), []byte("secret"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	rec := httptest.NewRecorder()
+	s.Handler().ServeHTTP(rec, httptest.NewRequest("GET", "/read/passwd?token=secret", nil))
+	if rec.Code == http.StatusOK {
+		t.Fatalf("file not matching any glob must not be served (code=%d)", rec.Code)
+	}
+}
+
+func TestReadBlocksTraversal(t *testing.T) {
+	s, _ := newTestServer(t)
+	rec := httptest.NewRecorder()
+	s.Handler().ServeHTTP(rec, httptest.NewRequest("GET", "/read/..%2f..%2fsecret?token=secret", nil))
 	if rec.Code == http.StatusOK {
 		t.Fatalf("traversal must not return 200")
+	}
+}
+
+func TestReadRequiresToken(t *testing.T) {
+	s, _ := newTestServer(t)
+	rec := httptest.NewRecorder()
+	s.Handler().ServeHTTP(rec, httptest.NewRequest("GET", "/read/error.log", nil))
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("no token: code = %d, want 403", rec.Code)
 	}
 }
 
@@ -66,18 +96,6 @@ func TestScreenshotWrongToken(t *testing.T) {
 	s.Handler().ServeHTTP(rec, httptest.NewRequest("GET", "/screenshot?token=wrong", nil))
 	if rec.Code != http.StatusForbidden {
 		t.Fatalf("wrong token: code = %d, want 403", rec.Code)
-	}
-}
-
-func TestLogsBlocksNonAllowlisted(t *testing.T) {
-	s, base := newTestServer(t)
-	if err := os.WriteFile(filepath.Join(base, "passwd"), []byte("secret"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	rec := httptest.NewRecorder()
-	s.Handler().ServeHTTP(rec, httptest.NewRequest("GET", "/logs/passwd?token=secret", nil))
-	if rec.Code == http.StatusOK {
-		t.Fatalf("non-allowlisted file must not be served (code=%d)", rec.Code)
 	}
 }
 

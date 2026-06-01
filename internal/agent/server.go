@@ -37,22 +37,20 @@ type Server struct {
 	Token    string
 	Capturer Capturer
 	LogDir   string
-	BaseDir  string // root for /exec, /spawn (cwd), /get and /read; defaults to LogDir
-	Logger   *log.Logger
+	BaseDir   string   // root for /exec, /spawn (cwd), /get and /read; defaults to LogDir
+	ReadGlobs []string // allowlist of path globs readable via /read/ (and /logs/ alias)
+	Logger    *log.Logger
 	// Authorizer gates every request. If nil, a TokenAuthorizer derived from
 	// Token is used (P3 will inject an identity-based one here).
 	Authorizer Authorizer
 }
 
-// allowedLogs is the fixed set of log files we expose. (Generalized to globs in
-// a later task.)
-var allowedLogs = map[string]bool{"error.log": true, "app.log": true}
-
 // Handler returns the HTTP mux for all endpoints.
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/screenshot", s.handleScreenshot)
-	mux.HandleFunc("/logs/", s.handleLogs)
+	mux.HandleFunc("/read/", s.handleRead)
+	mux.HandleFunc("/logs/", s.handleRead) // backward-compatible alias
 	mux.HandleFunc("/exec", s.handleExec)
 	mux.HandleFunc("/spawn", s.handleSpawn)
 	mux.HandleFunc("/get", s.handleGet)
@@ -124,18 +122,39 @@ func (s *Server) handleScreenshot(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write(png) // best-effort; client may have disconnected
 }
 
-func (s *Server) handleLogs(w http.ResponseWriter, r *http.Request) {
+// readMatches reports whether rel matches any configured read glob. With no
+// globs configured, nothing is readable (deny by default).
+func (s *Server) readMatches(rel string) bool {
+	for _, g := range s.ReadGlobs {
+		if ok, _ := filepath.Match(g, rel); ok {
+			return true
+		}
+	}
+	return false
+}
+
+// handleRead serves a file under base_dir whose relative path matches a
+// configured read glob. Served at /read/ (and the legacy /logs/ alias).
+func (s *Server) handleRead(w http.ResponseWriter, r *http.Request) {
 	if !s.authed(w, r) {
 		return
 	}
-	name := filepath.Base(r.URL.Path) // strips any path segments
-	if !allowedLogs[name] {
-		s.logf("logs   DENIED %q (not allowlisted)", name)
+	// Strip whichever prefix matched (/read/ or /logs/).
+	rel := strings.TrimPrefix(r.URL.Path, "/read/")
+	rel = strings.TrimPrefix(rel, "/logs/")
+	full, ok := s.safeJoin(rel)
+	if !ok {
+		s.logf("read   DENIED %q (outside base)", rel)
+		http.Error(w, "forbidden path", http.StatusForbidden)
+		return
+	}
+	if !s.readMatches(rel) {
+		s.logf("read   DENIED %q (no matching glob)", rel)
 		http.Error(w, "not found", http.StatusNotFound)
 		return
 	}
-	s.logf("logs   -> %s", name)
-	http.ServeFile(w, r, filepath.Join(s.base(), name))
+	s.logf("read   -> %s", rel)
+	http.ServeFile(w, r, full)
 }
 
 // shellCommand wraps a command line in the platform shell.
