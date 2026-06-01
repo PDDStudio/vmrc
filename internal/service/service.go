@@ -9,8 +9,9 @@ import (
 	ksvc "github.com/kardianos/service"
 )
 
-// stopTimeout bounds how long Stop waits for the run func to return.
-const stopTimeout = 12 * time.Second
+// stopTimeout bounds how long Stop waits for the run func to return. It is a var
+// so tests can shorten it.
+var stopTimeout = 12 * time.Second
 
 // Config is the subset of service identity + behavior the Manager needs.
 type Config struct {
@@ -30,7 +31,10 @@ func toKardianosConfig(cfg Config) *ksvc.Config {
 		DisplayName: cfg.DisplayName,
 		Description: cfg.Description,
 		Arguments:   cfg.Arguments,
-		Option:      ksvc.KeyValue{"OnFailure": "restart"},
+		// OnFailure is honored only on Windows; on Linux (systemd) and macOS
+		// (launchd) kardianos auto-restarts via its defaults (Restart=always /
+		// KeepAlive), so cross-platform restart still holds.
+		Option: ksvc.KeyValue{"OnFailure": "restart"},
 	}
 }
 

@@ -2,7 +2,9 @@ package service
 
 import (
 	"context"
+	"errors"
 	"testing"
+	"time"
 )
 
 func TestToKardianosConfigMapping(t *testing.T) {
@@ -31,5 +33,61 @@ func TestNewBuildsManager(t *testing.T) {
 	}
 	if m == nil {
 		t.Fatal("New returned nil manager")
+	}
+}
+
+// These program lifecycle tests mutate the package-level stopTimeout var, so
+// they must not be made parallel (no t.Parallel()).
+
+func TestProgramStartRequiresRunFunc(t *testing.T) {
+	p := &program{}
+	if err := p.Start(nil); err == nil {
+		t.Fatal("Start with nil run func should error")
+	}
+}
+
+func TestProgramStopBeforeStartIsNoop(t *testing.T) {
+	p := &program{}
+	if err := p.Stop(nil); err != nil {
+		t.Fatalf("Stop before Start should be nil, got %v", err)
+	}
+}
+
+func TestProgramStopReturnsRunError(t *testing.T) {
+	wantErr := errors.New("boom")
+	p := &program{run: func(ctx context.Context) error {
+		<-ctx.Done()
+		return wantErr
+	}}
+	if err := p.Start(nil); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	if err := p.Stop(nil); !errors.Is(err, wantErr) {
+		t.Fatalf("Stop returned %v, want %v", err, wantErr)
+	}
+}
+
+func TestProgramStopHonorsTimeout(t *testing.T) {
+	old := stopTimeout
+	stopTimeout = 50 * time.Millisecond
+	defer func() { stopTimeout = old }()
+
+	// run func ignores ctx and outlives the timeout; Stop must still return.
+	p := &program{run: func(ctx context.Context) error {
+		time.Sleep(500 * time.Millisecond)
+		return nil
+	}}
+	if err := p.Start(nil); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	done := make(chan error, 1)
+	go func() { done <- p.Stop(nil) }()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("Stop on timeout should return nil, got %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Stop did not return after timeout")
 	}
 }
