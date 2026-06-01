@@ -34,9 +34,9 @@ type Capturer interface {
 // /exec+/spawn (cwd), /get and /read (file access), and an optional Logger
 // (defaults to the standard logger, which the agent points at the console).
 type Server struct {
-	Token    string
-	Capturer Capturer
-	LogDir   string
+	Token     string
+	Capturer  Capturer
+	LogDir    string
 	BaseDir   string   // root for /exec, /spawn (cwd), /get and /read; defaults to LogDir
 	ReadGlobs []string // allowlist of path globs readable via /read/ (and /logs/ alias)
 	Logger    *log.Logger
@@ -257,11 +257,13 @@ func (s *Server) handleGet(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "forbidden path", http.StatusForbidden)
 		return
 	}
-	if info, err := os.Stat(full); err == nil {
-		s.logf("get    -> %s (%d bytes)", rel, info.Size())
-	} else {
-		s.logf("get    -> %s (missing)", rel)
+	info, err := os.Stat(full)
+	if err != nil || info.IsDir() {
+		s.logf("get    DENIED %q (missing or directory)", rel)
+		http.Error(w, "not found", http.StatusNotFound)
+		return
 	}
+	s.logf("get    -> %s (%d bytes)", rel, info.Size())
 	http.ServeFile(w, r, full)
 }
 

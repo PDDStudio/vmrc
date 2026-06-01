@@ -258,6 +258,19 @@ func TestReadBlocksDirectory(t *testing.T) {
 	}
 }
 
+func TestGetBlocksDirectory(t *testing.T) {
+	base := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(base, "sub"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	s := &Server{Token: "secret", Capturer: fakeCapturer{}, BaseDir: base}
+	rec := httptest.NewRecorder()
+	s.Handler().ServeHTTP(rec, httptest.NewRequest("GET", "/get?token=secret&path=sub", nil))
+	if rec.Code == http.StatusOK {
+		t.Fatalf("directory must not be served via /get (code=%d)", rec.Code)
+	}
+}
+
 func TestLogsAliasDeniesNonMatchingGlob(t *testing.T) {
 	s, base := newTestServer(t)
 	if err := os.WriteFile(filepath.Join(base, "passwd"), []byte("x"), 0o644); err != nil {
