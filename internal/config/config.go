@@ -5,7 +5,10 @@ package config
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
+	"path/filepath"
+	"runtime"
 )
 
 // Config holds the agent's runtime configuration.
@@ -21,10 +24,51 @@ type Config struct {
 	AuthKey string `json:"-"` // tailnet auth key (env TS_AUTHKEY; used from P1)
 }
 
-// Defaults returns the compiled-in defaults.
+// paths bundles the per-OS default filesystem locations.
+type paths struct {
+	ConfigPath string
+	StateDir   string
+	BaseDir    string
+}
+
+// defaultPaths returns the conventional system locations for the given GOOS.
+// They are chosen so the boot service account (LocalSystem on Windows, root on
+// Linux) can always read them. Non-windows/darwin GOOS fall through to the
+// Linux layout.
+func defaultPaths(goos string) paths {
+	switch goos {
+	case "windows":
+		base := `C:\ProgramData\vmrc`
+		return paths{
+			ConfigPath: base + `\agent.json`,
+			StateDir:   base + `\state`,
+			BaseDir:    base + `\files`,
+		}
+	case "darwin":
+		base := "/Library/Application Support/vmrc"
+		return paths{
+			ConfigPath: filepath.Join(base, "agent.json"),
+			StateDir:   filepath.Join(base, "state"),
+			BaseDir:    filepath.Join(base, "files"),
+		}
+	default: // linux and other unixes
+		return paths{
+			ConfigPath: "/etc/vmrc/agent.json",
+			StateDir:   "/var/lib/vmrc/state",
+			BaseDir:    "/var/lib/vmrc/files",
+		}
+	}
+}
+
+// DefaultConfigPath is the config-file location used when --config is unset.
+func DefaultConfigPath() string { return defaultPaths(runtime.GOOS).ConfigPath }
+
+// Defaults returns the compiled-in defaults for the current OS.
 func Defaults() Config {
+	p := defaultPaths(runtime.GOOS)
 	return Config{
-		BaseDir:    ".",
+		StateDir:   p.StateDir,
+		BaseDir:    p.BaseDir,
 		ListenPort: 47800,
 	}
 }
@@ -44,4 +88,37 @@ func LoadFile(cfg Config, path string) (Config, error) {
 		return cfg, err
 	}
 	return cfg, nil
+}
+
+// EnsureDirs creates the state and base directories if they are missing.
+// StateDir holds tailnet keys, so it is created 0700; BaseDir is 0755. An empty
+// StateDir or BaseDir is skipped (callers that require them should validate
+// first). Subject to the process umask, like any MkdirAll.
+func EnsureDirs(cfg Config) error {
+	if cfg.StateDir != "" {
+		if err := os.MkdirAll(cfg.StateDir, 0o700); err != nil {
+			return fmt.Errorf("create state dir %q: %w", cfg.StateDir, err)
+		}
+	}
+	if cfg.BaseDir != "" {
+		if err := os.MkdirAll(cfg.BaseDir, 0o755); err != nil {
+			return fmt.Errorf("create base dir %q: %w", cfg.BaseDir, err)
+		}
+	}
+	return nil
+}
+
+// RequireAbsPaths fails if StateDir or BaseDir is set but not absolute. The boot
+// service runs from a different working directory than the installer, so
+// relative paths would not resolve identically.
+func RequireAbsPaths(cfg Config) error {
+	for _, p := range []struct{ name, val string }{
+		{"state_dir", cfg.StateDir},
+		{"base_dir", cfg.BaseDir},
+	} {
+		if p.val != "" && !filepath.IsAbs(p.val) {
+			return fmt.Errorf("%s must be an absolute path for the boot service, got %q", p.name, p.val)
+		}
+	}
+	return nil
 }

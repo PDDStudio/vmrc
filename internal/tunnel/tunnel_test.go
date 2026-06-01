@@ -67,3 +67,16 @@ func TestHasState(t *testing.T) {
 		t.Error("state file present but hasState = false")
 	}
 }
+
+func TestHasStateExported(t *testing.T) {
+	dir := t.TempDir()
+	if HasState(dir) {
+		t.Fatal("empty dir should report no state")
+	}
+	if err := os.WriteFile(filepath.Join(dir, "tailscaled.state"), []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if !HasState(dir) {
+		t.Fatal("dir with tailscaled.state should report state")
+	}
+}

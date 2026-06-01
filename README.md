@@ -1,8 +1,7 @@
 # vmrc — VM remote control
 
-> **Status: handoff / pre-implementation.** This repo currently contains only the
-> design + handoff documents. No code yet. See [KICKOFF_PROMPT.md](./KICKOFF_PROMPT.md)
-> to start the implementation session.
+> **Status: in development.** The `vmrc-agent` boot service + one-click `setup` are
+> implemented (P2). See the [quick start](#quick-start-agent) below.
 
 ## What this is
 
@@ -20,6 +19,27 @@
 **`vmrc`** — the **host-side CLI**: from your main machine you run `vmrc ls`,
 `vmrc exec <vm> -- <cmd>`, `vmrc shot <vm>`, `vmrc cp …` to drive a *fleet* of VMs over the
 tailnet. A later phase adds an **MCP server mode** (`vmrc mcp`) so AI agents drive VMs natively.
+
+## Quick start (agent)
+
+On the VM you want to control, from a privileged shell (Administrator on Windows,
+`sudo` on Linux):
+
+1. Create a **tagged auth key** (`tag:vmrc`) in the Tailscale admin console.
+2. Run setup with the key in the environment:
+
+   ```sh
+   TS_AUTHKEY=tskey-... vmrc-agent setup
+   ```
+
+That's it — `setup` writes the config, creates its directories, enrolls the VM on
+your tailnet, and installs + starts a boot service. After every reboot the agent
+rejoins the tailnet on its own (no auth key needed again). The key is used only
+during enrollment and is never written to disk. Re-running `setup` is safe.
+
+See [docs/runbook-windows.md](docs/runbook-windows.md) for the lower-level
+commands (`run`/`install`/`start`/`stop`/`status`/`uninstall`), where state lives,
+and the screenshot/session-0 caveat.
 
 ## Why it exists
 

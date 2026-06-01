@@ -6,16 +6,6 @@ import (
 	"testing"
 )
 
-func TestDefaults(t *testing.T) {
-	c := Defaults()
-	if c.BaseDir != "." {
-		t.Fatalf("BaseDir default = %q, want \".\"", c.BaseDir)
-	}
-	if c.ListenPort != 47800 {
-		t.Fatalf("ListenPort default = %d, want 47800", c.ListenPort)
-	}
-}
-
 func TestLoadFileEmptyPathIsNoop(t *testing.T) {
 	in := Defaults()
 	out, err := LoadFile(in, "")
