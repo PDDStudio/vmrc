@@ -159,8 +159,12 @@ func serve(ctx context.Context, h http.Handler, ln net.Listener, closeTunnel fun
 
 	select {
 	case err := <-errCh:
+		// Server exited on its own before ctx was canceled — abnormal (e.g. the
+		// listener died out-of-band). Propagate the error; it's fatal to run.
 		if closeTunnel != nil {
-			_ = closeTunnel()
+			if cerr := closeTunnel(); cerr != nil {
+				log.Printf("tunnel close after server exit: %v", cerr)
+			}
 		}
 		return err
 	case <-ctx.Done():
