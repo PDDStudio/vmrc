@@ -85,7 +85,7 @@ func runCommand() *cli.Command {
 }
 
 func runAction(ctx context.Context, cmd *cli.Command) error {
-	// Precedence: defaults → JSON file → env → flags.
+	// Precedence (highest wins): flag → env → JSON file → default.
 	cfg, err := config.LoadFile(config.Defaults(), cmd.String("config"))
 	if err != nil {
 		return fmt.Errorf("loading config: %w", err)
