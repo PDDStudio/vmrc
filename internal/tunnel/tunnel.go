@@ -49,6 +49,11 @@ func hasState(dir string) bool {
 	return err == nil
 }
 
+// HasState reports whether a tsnet state file already exists in dir, meaning the
+// node can resume a prior identity without an auth key. Exported for the setup
+// flow's enroll-skip decision.
+func HasState(dir string) bool { return hasState(dir) }
+
 // validateConfig fails fast on an un-enrollable configuration: no auth key and
 // no saved state to resume from.
 func validateConfig(cfg Config, stateExists bool) error {
