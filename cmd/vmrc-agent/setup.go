@@ -93,8 +93,9 @@ func setupAction(ctx context.Context, cmd *cli.Command) error {
 
 	// 3. Enroll on the tailnet (transient: bring the node up to persist state,
 	//    then close). TS_AUTHKEY is used here and never written to disk.
-	if needEnroll(tunnel.HasState(cfg.StateDir), cfg.AuthKey) {
-		if cfg.AuthKey == "" && !tunnel.HasState(cfg.StateDir) {
+	stateExists := tunnel.HasState(cfg.StateDir)
+	if needEnroll(stateExists, cfg.AuthKey) {
+		if cfg.AuthKey == "" && !stateExists {
 			return fmt.Errorf("no tailnet state and no TS_AUTHKEY set; export TS_AUTHKEY=<tailscale auth key> and re-run")
 		}
 		fmt.Println("enrolling on the tailnet...")
@@ -116,20 +117,29 @@ func setupAction(ctx context.Context, cmd *cli.Command) error {
 		fmt.Printf("tailnet state already present in %s; skipping enroll\n", cfg.StateDir)
 	}
 
-	// 4. Install the boot service.
+	// 4. Install the boot service (idempotent: tolerate an existing install).
 	mgr, err := buildManager(cmd)
 	if err != nil {
 		return err
 	}
 	if err := mgr.Control("install"); err != nil {
-		return err
+		// Only swallow the error if Status confirms the service already exists;
+		// otherwise it is a real install failure.
+		if st, serr := mgr.Status(); serr == nil {
+			fmt.Printf("service %q already installed (%s); skipping install\n", cmd.String("service-name"), st)
+		} else {
+			return fmt.Errorf("installing service: %w", err)
+		}
+	} else {
+		fmt.Printf("installed service %q\n", cmd.String("service-name"))
 	}
-	fmt.Printf("installed service %q\n", cmd.String("service-name"))
 
-	// 5. Start it.
-	if err := mgr.Control("start"); err != nil {
-		return err
+	// 5. Start it (idempotent: skip if already running).
+	if st, _ := mgr.Status(); st == "running" {
+		fmt.Printf("service %q already running\n", cmd.String("service-name"))
+	} else if err := mgr.Control("start"); err != nil {
+		return fmt.Errorf("starting service: %w", err)
 	}
-	fmt.Println("service started; the agent will rejoin the tailnet automatically on every boot.")
+	fmt.Println("setup complete; the agent will rejoin the tailnet automatically on every boot.")
 	return nil
 }
