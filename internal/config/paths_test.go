@@ -61,8 +61,12 @@ func TestEnsureDirsCreatesMissing(t *testing.T) {
 	if st.Mode().Perm() != 0o700 {
 		t.Errorf("state dir perm = %o, want 700", st.Mode().Perm())
 	}
-	if _, err := os.Stat(cfg.BaseDir); err != nil {
+	bst, err := os.Stat(cfg.BaseDir)
+	if err != nil {
 		t.Fatalf("base dir not created: %v", err)
+	}
+	if bst.Mode().Perm() != 0o755 {
+		t.Errorf("base dir perm = %o, want 755", bst.Mode().Perm())
 	}
 }
 

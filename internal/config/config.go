@@ -91,7 +91,9 @@ func LoadFile(cfg Config, path string) (Config, error) {
 }
 
 // EnsureDirs creates the state and base directories if they are missing.
-// StateDir holds tailnet keys, so it is created 0700; BaseDir is 0755.
+// StateDir holds tailnet keys, so it is created 0700; BaseDir is 0755. An empty
+// StateDir or BaseDir is skipped (callers that require them should validate
+// first). Subject to the process umask, like any MkdirAll.
 func EnsureDirs(cfg Config) error {
 	if cfg.StateDir != "" {
 		if err := os.MkdirAll(cfg.StateDir, 0o700); err != nil {
