@@ -27,4 +27,8 @@ func TestTokenAuthorizerEmptyServerTokenDeniesAll(t *testing.T) {
 	if err := a.Authorize(req); err == nil {
 		t.Fatal("empty server token must always deny")
 	}
+	req2 := httptest.NewRequest("GET", "/exec?token=anyvalue", nil)
+	if err := a.Authorize(req2); err == nil {
+		t.Fatal("empty server token must deny even a non-empty client token")
+	}
 }
