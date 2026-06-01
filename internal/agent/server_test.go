@@ -15,7 +15,9 @@ func (f fakeCapturer) Capture() ([]byte, error) { return f.png, nil }
 
 func newTestServer(t *testing.T) (*Server, string) {
 	base := t.TempDir()
-	os.WriteFile(filepath.Join(base, "error.log"), []byte("boom"), 0o644)
+	if err := os.WriteFile(filepath.Join(base, "error.log"), []byte("boom"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	return &Server{Token: "secret", Capturer: fakeCapturer{png: []byte("PNGDATA")}, BaseDir: base}, base
 }
 
