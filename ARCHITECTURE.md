@@ -3,16 +3,17 @@
 This is the technical design the implementation session should build toward. It is a target,
 not law — deviate where reality demands, but record why.
 
-## One binary, two roles
+## Two binaries, one module
 
-`vmrc` ships as a single cross-compiled binary. Its subcommand selects the role:
+`vmrc` ships as **two cross-compiled binaries** built from one module, sharing logic through
+`internal/*` packages:
 
-**Agent role (runs on the VM):**
-- `vmrc agent` — run the agent in the foreground (used by the service supervisor).
-- `vmrc install` / `vmrc uninstall` — register/remove the OS boot service.
-- `vmrc start` / `vmrc stop` / `vmrc status` — control the installed service.
+**`vmrc-agent` (runs on the VM):**
+- `vmrc-agent run` — run the agent in the foreground (used by the service supervisor).
+- `vmrc-agent install` / `vmrc-agent uninstall` — register/remove the OS boot service.
+- `vmrc-agent start` / `vmrc-agent stop` / `vmrc-agent status` — control the installed service.
 
-**Host role (runs on your main machine):**
+**`vmrc` (the host CLI, runs on your main machine):**
 - `vmrc ls` — list reachable vmrc VMs on the tailnet.
 - `vmrc exec <vm> -- <cmd…>` — run a command on a VM, stream stdout + exit code.
 - `vmrc shot <vm> [-o file.png]` — grab a screenshot.
@@ -20,8 +21,9 @@ not law — deviate where reality demands, but record why.
 - `vmrc cp` — convenience wrapper over get/put.
 - (later) `vmrc mcp` — run an MCP server exposing these verbs as tools.
 
-A single binary keeps cross-compilation and distribution trivial: build once per OS/arch,
-copy to a VM to be an agent, keep one on the host to be a controller.
+Splitting the roles keeps each binary's responsibility (and build target) clear: build
+`vmrc-agent` per VM OS/arch and copy it to a VM; build `vmrc` for your host. Shared code
+(`internal/agent` types, `internal/config`) lives in the one module, so there is no duplication.
 
 ## The agent
 
@@ -78,7 +80,8 @@ Key consequences:
 ### Service install: kardianos/service
 
 Use `github.com/kardianos/service` for one API across Windows Service, macOS launchd, and
-Linux systemd/openrc. `vmrc install` registers boot-start; the service body runs `vmrc agent`.
+Linux systemd/openrc. `vmrc-agent install` registers boot-start; the service body runs
+`vmrc-agent run`.
 
 ```go
 svcConfig := &service.Config{

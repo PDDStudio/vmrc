@@ -6,7 +6,9 @@
 
 ## What this is
 
-`vmrc` is a **single Go binary** you drop onto a VM. It:
+`vmrc` ships as **two binaries** built from one Go module:
+
+**`vmrc-agent`** — you drop it onto a VM. It:
 
 1. **Installs itself as a boot service** (Windows Service / launchd / systemd) so it runs in
    the background every time the machine starts.
@@ -15,9 +17,9 @@
 3. **Exposes a small, identity-gated HTTP API** for remote control: screenshot the desktop,
    read files/logs, run commands, spawn detached processes, and push/pull files.
 
-The **same binary** also acts as the **host-side CLI**: from your main machine you run
-`vmrc ls`, `vmrc exec <vm> -- <cmd>`, `vmrc shot <vm>`, `vmrc cp …` to drive a *fleet* of VMs
-over the tailnet. A later phase adds an **MCP server mode** so AI agents drive VMs natively.
+**`vmrc`** — the **host-side CLI**: from your main machine you run `vmrc ls`,
+`vmrc exec <vm> -- <cmd>`, `vmrc shot <vm>`, `vmrc cp …` to drive a *fleet* of VMs over the
+tailnet. A later phase adds an **MCP server mode** (`vmrc mcp`) so AI agents drive VMs natively.
 
 ## Why it exists
 
@@ -31,7 +33,7 @@ self-installing tool. See [CONCEPT.md](./CONCEPT.md).
 ```
   host machine (Mac)                         VM 1 (Windows)
   ┌─────────────────┐     tailnet (WG)     ┌──────────────────────────┐
-  │ vmrc ls/exec/…  │◀───────────────────▶ │ vmrc agent  (boot service)│
+  │ vmrc ls/exec/…  │◀───────────────────▶ │ vmrc-agent (boot service) │
   │ (CLI / MCP)     │   http://vm:47800    │   embeds tsnet  ──► tailnet│
   └─────────────────┘                      │   serves /exec /shot /…   │
           ▲                                └──────────────────────────┘
@@ -51,10 +53,14 @@ authorizes callers by their Tailscale identity (and optionally a shared token).
 | [ROADMAP.md](./ROADMAP.md) | Phased implementation plan (P0→P6) with done-checks |
 | [CLAUDE.md](./CLAUDE.md) | Project context + decisions for Claude Code in this repo |
 | [KICKOFF_PROMPT.md](./KICKOFF_PROMPT.md) | Paste-ready prompt to open the build session |
+| [docs/superpowers/specs/2026-06-01-vmrc-design.md](./docs/superpowers/specs/2026-06-01-vmrc-design.md) | Implementation-level design + phase plan (**authoritative for *how* we build**) |
 
 ## Decided direction (do not re-litigate)
 
+- **Binaries:** two — `vmrc` (host CLI) + `vmrc-agent` (VM agent)
 - **Language:** Go
+- **CLI framework:** `urfave/cli/v3`
+- **Config:** flags + env + JSON file
 - **Tunnel:** embedded `tailscale.com/tsnet`
 - **Target OS:** Windows, Linux, macOS
 - **Host UX:** CLI now, MCP server later

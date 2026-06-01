@@ -16,13 +16,13 @@ Stand up the Go module and the HTTP server on a plain TCP listener (no tunnel ye
 proven core runs and its tests pass.
 
 - `go mod init`; pick a module path (e.g. `github.com/pddstudio/vmrc`).
-- Command structure: `vmrc agent` (the only working subcommand this phase).
+- Command structure: `vmrc-agent run` (the only working subcommand this phase).
 - **Lift** the control agent's `server.go` → `internal/agent/server.go`.
 - **Lift** its `server_test.go` → keep all 19 tests green.
 - **Lift** the entrypoint pattern into `cmd/vmrc-agent/`; listen on plain `:47800` for now.
 - Keep `safeJoin`, `authed`, per-request logging.
 
-**Done when:** `go test ./...` is green and `vmrc agent` serves `/exec`, `/get`, `/put`,
+**Done when:** `go test ./...` is green and `vmrc-agent run` serves `/exec`, `/get`, `/put`,
 `/spawn` against `curl` on localhost.
 
 ---
@@ -36,7 +36,7 @@ Replace the plain listener with a tsnet node so the binary joins the tailnet its
 - Auth key from `TS_AUTHKEY` env / config; persist state in `Dir`.
 - Keep a `--local` dev flag to fall back to plain TCP for fast iteration.
 
-**Done when:** with a tagged auth key set, `vmrc agent` appears in the tailnet as
+**Done when:** with a tagged auth key set, `vmrc-agent run` appears in the tailnet as
 `vmrc-…` and is reachable from the host at `http://<magicdns>:47800/exec?cmd=…`. No system
 Tailscale on the agent box.
 
@@ -49,12 +49,12 @@ Tailscale on the agent box.
 Make it install itself and run on boot.
 
 - Add `github.com/kardianos/service`.
-- `vmrc install|uninstall|start|stop|status`; service body runs the agent.
+- `vmrc-agent install|uninstall|start|stop|status`; service body runs the agent.
 - `StartType: automatic`, `OnFailure/KeepAlive: restart`.
 - Resolve the **screenshot-under-service** caveats per OS (Windows session, macOS Screen
   Recording / LaunchAgent-vs-Daemon, Linux X11/Wayland) — document outcomes in a runbook.
 
-**Done when:** after `vmrc install` + reboot, the agent is up and on the tailnet with no manual
+**Done when:** after `vmrc-agent install` + reboot, the agent is up and on the tailnet with no manual
 step, on at least Windows and Linux (macOS screenshot caveat documented if unresolved).
 
 > Ref: <https://github.com/kardianos/service>
@@ -116,6 +116,7 @@ remains, and a fresh clone builds and runs per the README.
 
 | Dep | Purpose | Phase |
 |---|---|---|
+| `github.com/urfave/cli/v3` | CLI subcommands + flag/env/JSON sources (both binaries) | P0 |
 | `tailscale.com/tsnet` | embedded tailnet node | P1 |
 | `github.com/kardianos/service` | boot service across OSes | P2 |
 | `github.com/kbinani/screenshot` | desktop capture (win/mac/linux-X11) | P0/P5 |
