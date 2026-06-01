@@ -3,6 +3,7 @@ module github.com/pddstudio/vmrc
 go 1.26.3
 
 require (
+	github.com/kardianos/service v1.2.4
 	github.com/kbinani/screenshot v0.0.0-20250624051815-089614a94018
 	github.com/urfave/cli/v3 v3.9.0
 	tailscale.com v1.98.5
