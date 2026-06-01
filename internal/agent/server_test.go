@@ -244,3 +244,28 @@ func TestPutBlocksTraversal(t *testing.T) {
 		t.Fatalf("traversal must not write (code=%d)", rec.Code)
 	}
 }
+
+func TestReadBlocksDirectory(t *testing.T) {
+	base := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(base, "sub"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	s := &Server{Token: "secret", Capturer: fakeCapturer{}, BaseDir: base, ReadGlobs: []string{"sub", "*"}}
+	rec := httptest.NewRecorder()
+	s.Handler().ServeHTTP(rec, httptest.NewRequest("GET", "/read/sub?token=secret", nil))
+	if rec.Code == http.StatusOK {
+		t.Fatalf("directory must not be served (code=%d)", rec.Code)
+	}
+}
+
+func TestLogsAliasDeniesNonMatchingGlob(t *testing.T) {
+	s, base := newTestServer(t)
+	if err := os.WriteFile(filepath.Join(base, "passwd"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	rec := httptest.NewRecorder()
+	s.Handler().ServeHTTP(rec, httptest.NewRequest("GET", "/logs/passwd?token=secret", nil))
+	if rec.Code == http.StatusOK {
+		t.Fatalf("/logs/ alias must also deny non-matching globs (code=%d)", rec.Code)
+	}
+}

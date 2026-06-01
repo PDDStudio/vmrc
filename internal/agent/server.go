@@ -153,6 +153,12 @@ func (s *Server) handleRead(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "not found", http.StatusNotFound)
 		return
 	}
+	info, err := os.Stat(full)
+	if err != nil || info.IsDir() {
+		s.logf("read   DENIED %q (missing or directory)", rel)
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
 	s.logf("read   -> %s", rel)
 	http.ServeFile(w, r, full)
 }
