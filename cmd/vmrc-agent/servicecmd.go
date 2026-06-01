@@ -12,10 +12,17 @@ import (
 	"github.com/urfave/cli/v3"
 )
 
+// serviceArgs builds the OS service launch arguments. It bakes the absolute
+// config path AND the service name so the launched `run` body constructs a
+// service.Manager whose identity matches the registered service.
+func serviceArgs(absConfigPath, serviceName string) []string {
+	return []string{"run", "--config", absConfigPath, "--service-name", serviceName}
+}
+
 // buildManager constructs a service.Manager whose launch arguments are
-// "run --config <abs config path>". It reads only the config *path* (to bake
-// into the service Arguments); it does not load or validate the config file.
-// Used by the management commands and setup.
+// "run --config <abs config path> --service-name <name>". It reads only the
+// config *path* (to bake into the service Arguments); it does not load or
+// validate the config file. Used by the management commands and setup.
 func buildManager(cmd *cli.Command) (*service.Manager, error) {
 	p := configPath(cmd)
 	abs, err := filepath.Abs(p)
@@ -26,7 +33,7 @@ func buildManager(cmd *cli.Command) (*service.Manager, error) {
 		Name:        cmd.String("service-name"),
 		DisplayName: serviceDisplayName,
 		Description: serviceDescription,
-		Arguments:   []string{"run", "--config", abs},
+		Arguments:   serviceArgs(abs, cmd.String("service-name")),
 	})
 }
 
