@@ -8,7 +8,6 @@ package agent
 
 import (
 	"context"
-	"crypto/subtle"
 	"fmt"
 	"io"
 	"log"
@@ -40,6 +39,9 @@ type Server struct {
 	LogDir   string
 	BaseDir  string // root for /exec, /spawn (cwd), /get and /read; defaults to LogDir
 	Logger   *log.Logger
+	// Authorizer gates every request. If nil, a TokenAuthorizer derived from
+	// Token is used (P3 will inject an identity-based one here).
+	Authorizer Authorizer
 }
 
 // allowedLogs is the fixed set of log files we expose. (Generalized to globs in
@@ -89,10 +91,18 @@ func (s *Server) base() string {
 	return s.LogDir
 }
 
+// authorizer returns the configured Authorizer, or a token-based default
+// derived from Token.
+func (s *Server) authorizer() Authorizer {
+	if s.Authorizer != nil {
+		return s.Authorizer
+	}
+	return TokenAuthorizer{Token: s.Token}
+}
+
 func (s *Server) authed(w http.ResponseWriter, r *http.Request) bool {
-	tok := r.URL.Query().Get("token")
-	if s.Token == "" || subtle.ConstantTimeCompare([]byte(tok), []byte(s.Token)) != 1 {
-		s.logf("DENIED  %s %s (bad/no token)", r.Method, r.URL.Path)
+	if err := s.authorizer().Authorize(r); err != nil {
+		s.logf("DENIED  %s %s (%v)", r.Method, r.URL.Path, err)
 		http.Error(w, "forbidden", http.StatusForbidden)
 		return false
 	}
