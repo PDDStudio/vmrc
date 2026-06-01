@@ -13,15 +13,14 @@ import (
 )
 
 // buildManager constructs a service.Manager whose launch arguments are
-// "run --config <abs config path>". Used by every management command and setup.
+// "run --config <abs config path>". It reads only the config *path* (to bake
+// into the service Arguments); it does not load or validate the config file.
+// Used by the management commands and setup.
 func buildManager(cmd *cli.Command) (*service.Manager, error) {
-	path := cmd.String("config")
-	if path == "" {
-		path = config.DefaultConfigPath()
-	}
-	abs, err := filepath.Abs(path)
+	p := configPath(cmd)
+	abs, err := filepath.Abs(p)
 	if err != nil {
-		return nil, fmt.Errorf("resolving config path %q: %w", path, err)
+		return nil, fmt.Errorf("resolving config path %q: %w", p, err)
 	}
 	return service.New(service.Config{
 		Name:        cmd.String("service-name"),
@@ -109,7 +108,11 @@ func startCommand() *cli.Command {
 			if err != nil {
 				return err
 			}
-			return mgr.Control("start")
+			if err := mgr.Control("start"); err != nil {
+				return err
+			}
+			fmt.Printf("started service %q\n", cmd.String("service-name"))
+			return nil
 		},
 	}
 }
@@ -127,7 +130,11 @@ func stopCommand() *cli.Command {
 			if err != nil {
 				return err
 			}
-			return mgr.Control("stop")
+			if err := mgr.Control("stop"); err != nil {
+				return err
+			}
+			fmt.Printf("stopped service %q\n", cmd.String("service-name"))
+			return nil
 		},
 	}
 }

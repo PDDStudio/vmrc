@@ -37,14 +37,22 @@ func runCommand() *cli.Command {
 	}
 }
 
+// configPath returns the effective config-file path for cmd: the --config flag
+// value if set, otherwise the OS default. The single source of truth for both
+// resolveConfig (which loads it) and buildManager (which bakes it into the
+// service launch args).
+func configPath(cmd *cli.Command) string {
+	if p := cmd.String("config"); p != "" {
+		return p
+	}
+	return config.DefaultConfigPath()
+}
+
 // resolveConfig applies precedence flag → env → JSON file → default and reads
 // the env-only secrets. Used by both run and setup.
 func resolveConfig(cmd *cli.Command) (config.Config, error) {
 	explicit := cmd.IsSet("config")
-	path := cmd.String("config")
-	if path == "" {
-		path = config.DefaultConfigPath()
-	}
+	path := configPath(cmd)
 	cfg := config.Defaults()
 	// Overlay the JSON file when present. A missing DEFAULT path is fine
 	// (flags/env may supply everything), but a user-named --config that can't
