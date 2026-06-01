@@ -92,7 +92,14 @@ func runAction(ctx context.Context, cmd *cli.Command) error {
 		ReadGlobs: cfg.ReadGlobs,
 	}
 
+	if cfg.Token == "" {
+		log.Printf("WARNING: no token configured; all requests will be denied until VMRC_TOKEN is set")
+	}
+
+	// P0 serves a plain loopback TCP listener; --local is the only mode for now.
+	// P1 replaces this with the embedded tsnet listener.
 	addr := fmt.Sprintf("127.0.0.1:%d", cfg.ListenPort)
 	log.Printf("vmrc-agent listening on http://%s (base=%s, read globs=%v)", addr, cfg.BaseDir, cfg.ReadGlobs)
+	// TODO(P2): use http.Server.Shutdown(ctx) for graceful stop under the service manager.
 	return http.ListenAndServe(addr, srv.Handler())
 }
