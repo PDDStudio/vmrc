@@ -25,14 +25,14 @@ copy to a VM to be an agent, keep one on the host to be a controller.
 
 ## The agent
 
-### HTTP surface (lifted from inspect-agent, generalized)
+### HTTP surface (lifted from the proven control agent, generalized)
 
-Lift `patcher/internal/inspect/server.go` from `REDACTED`. Endpoint contract:
+Lift the control agent's `server.go` into `internal/agent/`. Endpoint contract:
 
 | Endpoint | Method | Params | Returns | Notes |
 |---|---|---|---|---|
 | `/screenshot` | GET | — | PNG (`image/png`) | platform capturer; multi-display handling |
-| `/read/` (was `/logs/`) | GET | path under allowlist/base | file bytes | **generalize**: configurable allow-globs, not hardcoded `syserr/syslog` |
+| `/read/` (was `/logs/`) | GET | path under allowlist/base | file bytes | **generalize**: configurable allow-globs, not a hardcoded log list |
 | `/exec` | GET | `cmd` | stdout (`text/plain`) + `X-Exit-Status` header | synchronous; default 10-min timeout via `context.WithTimeout` |
 | `/spawn` | GET | `cmd` | PID (`text/plain`) | detached, no timeout |
 | `/get` | GET | `path` | file bytes | `safeJoin` traversal guard, rooted at base dir |
@@ -174,12 +174,11 @@ Defense in depth, strongest-first:
 
 ## Build & cross-compile
 
-Follow the REDACTED pattern (`patcher/build.sh`): `GOOS`/`GOARCH` with
-`-ldflags="-s -w"`. Target matrix:
+Use a `GOOS`/`GOARCH` cross-compile script with `-ldflags="-s -w"`. Target matrix:
 
 | OS | GOARCH | Notes |
 |---|---|---|
-| windows | amd64 | primary (game VM heritage) |
+| windows | amd64 | primary target |
 | linux | amd64, arm64 | servers / build hosts |
 | darwin | amd64, arm64 | Mac VMs/hosts |
 
@@ -192,5 +191,5 @@ distributable and secret-free. (Build-time bake is possible via `-X` like the pa
 `vmrc mcp` runs an MCP server (stdio or HTTP) exposing the same verbs as MCP tools
 (`vmrc_exec`, `vmrc_screenshot`, `vmrc_get`, `vmrc_put`, `vmrc_ls`), so an AI agent drives the
 fleet natively instead of shelling out to curl/CLI. The tool surface mirrors the CLI 1:1 and
-reuses the same host-side HTTP client. The `REDACTED` skill in REDACTED is the
+reuses the same host-side HTTP client. The control agent's existing AI-agent skill is the
 reference for the intended agent UX.

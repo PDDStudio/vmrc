@@ -21,10 +21,10 @@ over the tailnet. A later phase adds an **MCP server mode** so AI agents drive V
 
 ## Why it exists
 
-It's the generalization of the `inspect-agent` built inside the `REDACTED` project, which
-let a human *and* an AI agent drive a Windows game VM (screenshots, logs, repacking client
-files) over Tailscale without RDP or SSH. That pattern proved broadly useful; `vmrc` extracts
-it into a standalone, multi-OS, multi-VM, self-installing tool. See [CONCEPT.md](./CONCEPT.md).
+It generalizes a proven internal control agent that let a human *and* an AI agent drive a
+Windows GUI VM (screenshots, logs, running build tooling) over Tailscale without RDP or SSH.
+That pattern proved broadly useful; `vmrc` extracts it into a standalone, multi-OS, multi-VM,
+self-installing tool. See [CONCEPT.md](./CONCEPT.md).
 
 ## Mental model
 

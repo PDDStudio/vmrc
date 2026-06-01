@@ -4,8 +4,9 @@ Phased plan for the implementation session. Each phase has a concrete done-check
 ordered so the thing works end-to-end as early as possible (skeleton → tunnel → service →
 auth → fleet → polish), then MCP last.
 
-All "lift from" paths are in the `REDACTED` repo
-(`/Users/REDACTED/dev/REDACTED/`). Port them; don't rewrite from scratch.
+The "lift from" source is the proven control agent recorded in the local, gitignored
+`LIFT_SOURCE.local.md` (the source files are also captured in the brainstorming session
+transcript). Port them; don't rewrite from scratch.
 
 ---
 
@@ -16,9 +17,9 @@ proven core runs and its tests pass.
 
 - `go mod init`; pick a module path (e.g. `github.com/pddstudio/vmrc`).
 - Command structure: `vmrc agent` (the only working subcommand this phase).
-- **Lift** `patcher/internal/inspect/server.go` → `internal/agent/server.go`.
-- **Lift** `patcher/internal/inspect/server_test.go` → keep all 13 tests green.
-- **Lift** `patcher/cmd/inspect-agent/main.go` flag handling; listen on plain `:47800` for now.
+- **Lift** the control agent's `server.go` → `internal/agent/server.go`.
+- **Lift** its `server_test.go` → keep all 19 tests green.
+- **Lift** the entrypoint pattern into `cmd/vmrc-agent/`; listen on plain `:47800` for now.
 - Keep `safeJoin`, `authed`, per-request logging.
 
 **Done when:** `go test ./...` is green and `vmrc agent` serves `/exec`, `/get`, `/put`,
@@ -88,16 +89,16 @@ The controller side.
 
 ## P5 — Generalize + cross-build release
 
-Strip REDACTED specifics; ship artifacts.
+Strip any application-specific assumptions; ship artifacts.
 
 - Replace hardcoded log allowlist with config-driven `read_globs`; `/logs/` → `/read/` (alias old).
 - Config file + env overrides (see ARCHITECTURE → Config).
-- **Lift** `patcher/internal/inspect/capture_windows.go`; generalize build tags to win/darwin/linux.
+- **Lift** the control agent's screen-capture file; generalize build tags to win/darwin/linux.
 - Cross-compile matrix (win/linux/darwin × amd64/arm64), `-ldflags="-s -w"`; a `build.sh`/Makefile.
 - README quick-start verified on a clean clone.
 
-**Done when:** release binaries exist for all target OS/arch, no game-specific code remains,
-and a fresh clone builds and runs per the README.
+**Done when:** release binaries exist for all target OS/arch, no application-specific code
+remains, and a fresh clone builds and runs per the README.
 
 ---
 
@@ -105,7 +106,7 @@ and a fresh clone builds and runs per the README.
 
 - `vmrc mcp` — expose verbs as MCP tools (`vmrc_exec`, `vmrc_screenshot`, `vmrc_get`,
   `vmrc_put`, `vmrc_ls`), reusing the P4 host client.
-- Model the tool UX on `REDACTED/.claude/skills/REDACTED/SKILL.md`.
+- Model the tool UX on the control agent's existing AI-agent skill.
 
 **Done when:** an AI agent can drive a VM through the MCP tools without curl/CLI.
 
@@ -120,4 +121,4 @@ and a fresh clone builds and runs per the README.
 | `github.com/kbinani/screenshot` | desktop capture (win/mac/linux-X11) | P0/P5 |
 | an MCP Go SDK (TBD) | MCP server mode | P6 |
 
-Ask Patrick before adding deps beyond these.
+Ask the maintainer before adding deps beyond these.
