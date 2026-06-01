@@ -11,6 +11,7 @@ vmrc.local.*
 *.state
 *.state/
 tsnet-state/
+vmrc-state/
 state/
 
 # Build output
