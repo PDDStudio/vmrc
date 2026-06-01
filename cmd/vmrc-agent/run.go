@@ -2,7 +2,9 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io/fs"
 	"log"
 	"net"
 	"net/http"
@@ -38,19 +40,26 @@ func runCommand() *cli.Command {
 // resolveConfig applies precedence flag → env → JSON file → default and reads
 // the env-only secrets. Used by both run and setup.
 func resolveConfig(cmd *cli.Command) (config.Config, error) {
+	explicit := cmd.IsSet("config")
 	path := cmd.String("config")
 	if path == "" {
 		path = config.DefaultConfigPath()
 	}
 	cfg := config.Defaults()
-	// Only overlay the file if it exists; an absent default path is fine
-	// (flags/env may supply everything).
-	if _, statErr := os.Stat(path); statErr == nil {
+	// Overlay the JSON file when present. A missing DEFAULT path is fine
+	// (flags/env may supply everything), but a user-named --config that can't
+	// be read, or any non-"not found" stat error (e.g. permission denied), is a
+	// hard failure rather than a silent fall-back to defaults.
+	_, statErr := os.Stat(path)
+	switch {
+	case statErr == nil:
 		var err error
 		cfg, err = config.LoadFile(cfg, path)
 		if err != nil {
 			return cfg, fmt.Errorf("loading config %q: %w", path, err)
 		}
+	case explicit || !errors.Is(statErr, fs.ErrNotExist):
+		return cfg, fmt.Errorf("config file %q: %w", path, statErr)
 	}
 	if cmd.IsSet("base-dir") {
 		cfg.BaseDir = cmd.String("base-dir")
