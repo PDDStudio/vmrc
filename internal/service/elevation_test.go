@@ -23,6 +23,8 @@ func TestElevationHint(t *testing.T) {
 	}
 }
 
+// These two tests swap the package-level probeElevated var, so they must not be
+// made parallel (no t.Parallel()).
 func TestRequireElevatedOK(t *testing.T) {
 	old := probeElevated
 	probeElevated = func() bool { return true }
