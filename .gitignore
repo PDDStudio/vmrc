@@ -16,6 +16,8 @@ state/
 # Build output
 /vmrc
 /vmrc.exe
+/vmrc-agent
+/vmrc-agent.exe
 /dist/
 /build/
 

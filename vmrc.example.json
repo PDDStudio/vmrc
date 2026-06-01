@@ -1,0 +1,7 @@
+{
+  "hostname": "vmrc-buildbox",
+  "state_dir": "./vmrc-state",
+  "base_dir": ".",
+  "read_globs": ["*.log", "logs/*.txt"],
+  "listen_port": 47800
+}
