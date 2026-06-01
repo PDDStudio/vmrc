@@ -29,6 +29,11 @@ func main() {
 		Usage: "VM-side remote-control agent",
 		Commands: []*cli.Command{
 			runCommand(),
+			installCommand(),
+			uninstallCommand(),
+			startCommand(),
+			stopCommand(),
+			statusCommand(),
 		},
 	}
 	if err := cmd.Run(ctx, os.Args); err != nil {
