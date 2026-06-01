@@ -1,6 +1,7 @@
 package config
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
 )
@@ -41,5 +42,49 @@ func TestDefaultsAreAbsolute(t *testing.T) {
 	}
 	if c.ListenPort != 47800 {
 		t.Errorf("ListenPort = %d, want 47800", c.ListenPort)
+	}
+}
+
+func TestEnsureDirsCreatesMissing(t *testing.T) {
+	root := t.TempDir()
+	cfg := Config{
+		StateDir: filepath.Join(root, "state"),
+		BaseDir:  filepath.Join(root, "files"),
+	}
+	if err := EnsureDirs(cfg); err != nil {
+		t.Fatalf("EnsureDirs err = %v", err)
+	}
+	st, err := os.Stat(cfg.StateDir)
+	if err != nil {
+		t.Fatalf("state dir not created: %v", err)
+	}
+	if st.Mode().Perm() != 0o700 {
+		t.Errorf("state dir perm = %o, want 700", st.Mode().Perm())
+	}
+	if _, err := os.Stat(cfg.BaseDir); err != nil {
+		t.Fatalf("base dir not created: %v", err)
+	}
+}
+
+func TestEnsureDirsIdempotent(t *testing.T) {
+	root := t.TempDir()
+	cfg := Config{StateDir: filepath.Join(root, "state")}
+	if err := EnsureDirs(cfg); err != nil {
+		t.Fatalf("first EnsureDirs err = %v", err)
+	}
+	if err := EnsureDirs(cfg); err != nil {
+		t.Fatalf("second EnsureDirs err = %v", err)
+	}
+}
+
+func TestRequireAbsPaths(t *testing.T) {
+	if err := RequireAbsPaths(Config{StateDir: "/abs/state", BaseDir: "/abs/files"}); err != nil {
+		t.Errorf("absolute paths should pass, got %v", err)
+	}
+	if err := RequireAbsPaths(Config{StateDir: "relative/state", BaseDir: "/abs"}); err == nil {
+		t.Error("relative state_dir must be rejected")
+	}
+	if err := RequireAbsPaths(Config{StateDir: "/abs", BaseDir: "relative"}); err == nil {
+		t.Error("relative base_dir must be rejected")
 	}
 }

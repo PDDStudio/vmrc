@@ -5,6 +5,7 @@ package config
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -87,4 +88,35 @@ func LoadFile(cfg Config, path string) (Config, error) {
 		return cfg, err
 	}
 	return cfg, nil
+}
+
+// EnsureDirs creates the state and base directories if they are missing.
+// StateDir holds tailnet keys, so it is created 0700; BaseDir is 0755.
+func EnsureDirs(cfg Config) error {
+	if cfg.StateDir != "" {
+		if err := os.MkdirAll(cfg.StateDir, 0o700); err != nil {
+			return fmt.Errorf("create state dir %q: %w", cfg.StateDir, err)
+		}
+	}
+	if cfg.BaseDir != "" {
+		if err := os.MkdirAll(cfg.BaseDir, 0o755); err != nil {
+			return fmt.Errorf("create base dir %q: %w", cfg.BaseDir, err)
+		}
+	}
+	return nil
+}
+
+// RequireAbsPaths fails if StateDir or BaseDir is set but not absolute. The boot
+// service runs from a different working directory than the installer, so
+// relative paths would not resolve identically.
+func RequireAbsPaths(cfg Config) error {
+	for _, p := range []struct{ name, val string }{
+		{"state_dir", cfg.StateDir},
+		{"base_dir", cfg.BaseDir},
+	} {
+		if p.val != "" && !filepath.IsAbs(p.val) {
+			return fmt.Errorf("%s must be an absolute path for the boot service, got %q", p.name, p.val)
+		}
+	}
+	return nil
 }
