@@ -1,0 +1,26 @@
+# Secrets & local config — never commit (CLAUDE.md constraint)
+vmrc.local.*
+.env
+
+# tsnet / service state
+*.state
+*.state/
+tsnet-state/
+state/
+
+# Build output
+/vmrc
+/vmrc.exe
+/dist/
+/build/
+
+# Go
+*.test
+*.out
+coverage.*
+
+# Editor / OS
+.DS_Store
+*.swp
+.idea/
+.vscode/
