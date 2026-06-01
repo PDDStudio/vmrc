@@ -29,6 +29,7 @@ func main() {
 		Usage: "VM-side remote-control agent",
 		Commands: []*cli.Command{
 			runCommand(),
+			setupCommand(),
 			installCommand(),
 			uninstallCommand(),
 			startCommand(),
