@@ -6,6 +6,7 @@ require (
 	github.com/kardianos/service v1.2.4
 	github.com/kbinani/screenshot v0.0.0-20250624051815-089614a94018
 	github.com/urfave/cli/v3 v3.9.0
+	golang.org/x/sys v0.43.0
 	tailscale.com v1.98.5
 )
 
@@ -49,7 +50,6 @@ require (
 	golang.org/x/net v0.53.0 // indirect
 	golang.org/x/oauth2 v0.36.0 // indirect
 	golang.org/x/sync v0.20.0 // indirect
-	golang.org/x/sys v0.43.0 // indirect
 	golang.org/x/term v0.42.0 // indirect
 	golang.org/x/text v0.36.0 // indirect
 	golang.org/x/time v0.12.0 // indirect
