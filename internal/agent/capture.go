@@ -10,10 +10,11 @@ import (
 	"github.com/kbinani/screenshot"
 )
 
-// ScreenCapturer captures the primary display as PNG.
-type ScreenCapturer struct{}
-
-func (ScreenCapturer) Capture() ([]byte, error) {
+// CaptureDirect grabs the primary display of the CURRENT session as PNG. On a
+// session-0 Windows service this fails ("no active displays"); the Windows
+// ScreenCapturer bridges into the active session instead (see
+// capture_windows.go). The capture-helper subcommand calls this directly.
+func CaptureDirect() ([]byte, error) {
 	n := screenshot.NumActiveDisplays()
 	if n == 0 {
 		return nil, fmt.Errorf("no active displays")
