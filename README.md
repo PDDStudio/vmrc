@@ -125,12 +125,41 @@ flow on a fresh VM, follow [docs/testing-on-a-vm.md](./docs/testing-on-a-vm.md).
 
 ## Install / build
 
-**From a release:** download the archive for your OS/arch from the
+**Quick install** — downloads the latest release for your OS/arch, SHA-256-verifies
+it against the release `checksums.txt`, and puts the binary on your `PATH`:
+
+```sh
+# Host CLI (Linux/macOS):
+curl -fsSL https://raw.githubusercontent.com/pddstudio/vmrc/main/scripts/install.sh | sh
+
+# Agent on a VM (Linux/macOS) — installs vmrc-agent, then prints the setup step:
+curl -fsSL https://raw.githubusercontent.com/pddstudio/vmrc/main/scripts/install.sh | VMRC_BINARY=vmrc-agent sh
+```
+
+```powershell
+# Agent on a Windows VM (run from an Administrator PowerShell):
+irm https://raw.githubusercontent.com/pddstudio/vmrc/main/scripts/install.ps1 | iex
+```
+
+The installer honors `VMRC_BINARY` (`vmrc`/`vmrc-agent`), `VMRC_VERSION` (pin a tag),
+and `VMRC_BIN_DIR` (install location); the PowerShell script takes `-Binary`,
+`-Version`, `-BinDir`. After the first install, the binary updates itself
+(see [Updating](#updating)).
+
+**From a release (manual):** download the archive for your OS/arch from the
 [Releases](https://github.com/pddstudio/vmrc/releases) page, verify it against
 `checksums.txt`, unpack, and place the binary on your `PATH`. For the agent,
 then follow the `setup` quick-start above.
 
-**From source:**
+**From source (Make):**
+
+```sh
+make build         # both binaries → bin/ (version-stamped from git)
+make dev-install   # build the CLI and symlink it onto your PATH (live rebuilds)
+make check         # vet + test + lint (the CI gate); make help lists all targets
+```
+
+**From source (plain `go`):**
 
 ```sh
 go build -o vmrc       ./cmd/vmrc          # host CLI
@@ -141,8 +170,9 @@ vmrc --version                             # reports the build stamp
 **All targets at once** (requires [GoReleaser](https://goreleaser.com)):
 
 ```sh
-goreleaser build --snapshot --clean          # win/linux/darwin × amd64/arm64 → dist/
-goreleaser build --snapshot --single-target  # just your host
+make snapshot                                 # win/linux/darwin × amd64/arm64 → dist/
+make snapshot-host                            # just your host
+# (equivalently: goreleaser build --snapshot --clean [--single-target])
 ```
 
 > **macOS screenshots:** release `vmrc-agent` binaries are built with `CGO_ENABLED=0`,
