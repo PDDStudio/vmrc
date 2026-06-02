@@ -1,6 +1,11 @@
 package main
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/pddstudio/vmrc/internal/config"
+	"github.com/urfave/cli/v3"
+)
 
 func TestServiceArgs(t *testing.T) {
 	args := serviceArgs("/etc/vmrc/agent.json", "vmrc-agent")
@@ -27,5 +32,16 @@ func TestServiceArgsCustomName(t *testing.T) {
 	}
 	if !found {
 		t.Errorf("serviceArgs did not bake --service-name foo: %v", args)
+	}
+}
+
+func TestBuildControllerUserModeUsesLauncher(t *testing.T) {
+	cmd := &cli.Command{Flags: []cli.Flag{configFlag(), serviceNameFlag(), systemFlag()}}
+	c, err := buildController(cmd, config.ModeUser)
+	if err != nil {
+		t.Fatalf("buildController user: %v", err)
+	}
+	if _, ok := c.(launcherController); !ok {
+		t.Fatalf("user mode must yield a launcher controller, got %T", c)
 	}
 }

@@ -37,6 +37,69 @@ func buildManager(cmd *cli.Command) (*service.Manager, error) {
 	})
 }
 
+// controller is the common verb surface shared by the system service Manager and
+// the user-mode Launcher.
+type controller interface {
+	Control(action string) error
+	Status() (string, error)
+}
+
+type managerController struct{ *service.Manager }
+
+type launcherController struct{ l service.Launcher }
+
+func (c launcherController) Control(action string) error {
+	switch action {
+	case "install":
+		return c.l.Install()
+	case "uninstall":
+		return c.l.Uninstall()
+	case "start":
+		return c.l.Start()
+	case "stop":
+		return c.l.Stop()
+	}
+	return fmt.Errorf("unknown action %q", action)
+}
+func (c launcherController) Status() (string, error) { return c.l.Status() }
+
+// buildController returns a managerController for system mode or a launcherController
+// for user mode (its spec points at the managed bin/ binary).
+func buildController(cmd *cli.Command, mode config.Mode) (controller, error) {
+	if mode == config.ModeSystem {
+		mgr, err := buildManager(cmd)
+		if err != nil {
+			return nil, err
+		}
+		return managerController{mgr}, nil
+	}
+	cfg, err := resolveConfigForMode(cmd, mode)
+	if err != nil {
+		return nil, err
+	}
+	cfgPath, err := configPathForMode(cmd, mode)
+	if err != nil {
+		return nil, err
+	}
+	absCfg, _ := filepath.Abs(cfgPath)
+	exe := filepath.Join(cfg.BinDir, binaryFileName())
+	user, err := currentUserName()
+	if err != nil {
+		return nil, err
+	}
+	l, err := service.NewLauncher(service.LaunchSpec{
+		Name:       cmd.String("service-name"),
+		Executable: exe,
+		Args:       serviceArgs(absCfg, cmd.String("service-name")),
+		User:       user,
+		Elevated:   true,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return launcherController{l}, nil
+}
+
 // preflightInstall checks elevation and absolute paths, and warns if no tsnet
 // state exists yet (the enroll-before-install reminder). cfg is the resolved
 // config.
@@ -58,20 +121,28 @@ func installCommand() *cli.Command {
 	return &cli.Command{
 		Name:  "install",
 		Usage: "register the agent as a boot service (run `setup` for one-click)",
-		Flags: []cli.Flag{configFlag(), serviceNameFlag()},
+		Flags: []cli.Flag{configFlag(), serviceNameFlag(), systemFlag()},
 		Action: func(ctx context.Context, cmd *cli.Command) error {
-			cfg, err := resolveConfig(cmd)
+			mode := resolveMode(cmd)
+			cfg, err := resolveConfigForMode(cmd, mode)
 			if err != nil {
 				return err
 			}
-			if err := preflightInstall(cfg); err != nil {
+			if err := requireElevatedFor(mode, "install"); err != nil {
 				return err
 			}
-			mgr, err := buildManager(cmd)
+			if err := config.RequireAbsPaths(cfg); err != nil {
+				return err
+			}
+			if !tunnel.HasState(cfg.StateDir) {
+				fmt.Fprintf(os.Stderr, "warning: no tailnet state in %q yet; the service cannot enroll at boot without it.\n"+
+					"  Run `vmrc-agent setup` (recommended) or `vmrc-agent run` once with TS_AUTHKEY set before relying on boot-start.\n", cfg.StateDir)
+			}
+			c, err := buildController(cmd, mode)
 			if err != nil {
 				return err
 			}
-			if err := mgr.Control("install"); err != nil {
+			if err := c.Control("install"); err != nil {
 				return err
 			}
 			fmt.Printf("installed service %q\n", cmd.String("service-name"))
@@ -84,16 +155,17 @@ func uninstallCommand() *cli.Command {
 	return &cli.Command{
 		Name:  "uninstall",
 		Usage: "deregister the boot service",
-		Flags: []cli.Flag{configFlag(), serviceNameFlag()},
+		Flags: []cli.Flag{configFlag(), serviceNameFlag(), systemFlag()},
 		Action: func(ctx context.Context, cmd *cli.Command) error {
-			if err := service.RequireElevated(); err != nil {
+			mode := resolveMode(cmd)
+			if err := requireElevatedFor(mode, "uninstall"); err != nil {
 				return err
 			}
-			mgr, err := buildManager(cmd)
+			c, err := buildController(cmd, mode)
 			if err != nil {
 				return err
 			}
-			if err := mgr.Control("uninstall"); err != nil {
+			if err := c.Control("uninstall"); err != nil {
 				return err
 			}
 			fmt.Printf("uninstalled service %q\n", cmd.String("service-name"))
@@ -106,16 +178,17 @@ func startCommand() *cli.Command {
 	return &cli.Command{
 		Name:  "start",
 		Usage: "start the installed service",
-		Flags: []cli.Flag{configFlag(), serviceNameFlag()},
+		Flags: []cli.Flag{configFlag(), serviceNameFlag(), systemFlag()},
 		Action: func(ctx context.Context, cmd *cli.Command) error {
-			if err := service.RequireElevated(); err != nil {
+			mode := resolveMode(cmd)
+			if err := requireElevatedFor(mode, "start"); err != nil {
 				return err
 			}
-			mgr, err := buildManager(cmd)
+			c, err := buildController(cmd, mode)
 			if err != nil {
 				return err
 			}
-			if err := mgr.Control("start"); err != nil {
+			if err := c.Control("start"); err != nil {
 				return err
 			}
 			fmt.Printf("started service %q\n", cmd.String("service-name"))
@@ -128,16 +201,17 @@ func stopCommand() *cli.Command {
 	return &cli.Command{
 		Name:  "stop",
 		Usage: "stop the installed service",
-		Flags: []cli.Flag{configFlag(), serviceNameFlag()},
+		Flags: []cli.Flag{configFlag(), serviceNameFlag(), systemFlag()},
 		Action: func(ctx context.Context, cmd *cli.Command) error {
-			if err := service.RequireElevated(); err != nil {
+			mode := resolveMode(cmd)
+			if err := requireElevatedFor(mode, "stop"); err != nil {
 				return err
 			}
-			mgr, err := buildManager(cmd)
+			c, err := buildController(cmd, mode)
 			if err != nil {
 				return err
 			}
-			if err := mgr.Control("stop"); err != nil {
+			if err := c.Control("stop"); err != nil {
 				return err
 			}
 			fmt.Printf("stopped service %q\n", cmd.String("service-name"))
@@ -150,13 +224,13 @@ func statusCommand() *cli.Command {
 	return &cli.Command{
 		Name:  "status",
 		Usage: "report whether the installed service is running",
-		Flags: []cli.Flag{configFlag(), serviceNameFlag()},
+		Flags: []cli.Flag{configFlag(), serviceNameFlag(), systemFlag()},
 		Action: func(ctx context.Context, cmd *cli.Command) error {
-			mgr, err := buildManager(cmd)
+			c, err := buildController(cmd, resolveMode(cmd))
 			if err != nil {
 				return err
 			}
-			st, err := mgr.Status()
+			st, err := c.Status()
 			if err != nil {
 				return err
 			}
