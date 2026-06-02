@@ -5,12 +5,14 @@ go 1.26.3
 require (
 	github.com/kardianos/service v1.2.4
 	github.com/kbinani/screenshot v0.0.0-20250624051815-089614a94018
+	github.com/minio/selfupdate v0.6.0
 	github.com/urfave/cli/v3 v3.9.0
 	golang.org/x/sys v0.45.0
 	tailscale.com v1.98.5
 )
 
 require (
+	aead.dev/minisign v0.2.0 // indirect
 	filippo.io/edwards25519 v1.2.0 // indirect
 	github.com/akutz/memconn v0.1.0 // indirect
 	github.com/alexbrainman/sspi v0.0.0-20250919150558-7d374ff0d59e // indirect

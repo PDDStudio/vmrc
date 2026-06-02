@@ -2,6 +2,8 @@ package host
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -110,6 +112,95 @@ func (c *Client) Get(ctx context.Context, remotePath string) (io.ReadCloser, err
 		return nil, errFromResponse(resp)
 	}
 	return resp.Body, nil
+}
+
+// UpdateParams are the optional self-update knobs forwarded to an agent's
+// /update endpoint as query parameters.
+type UpdateParams struct {
+	Version string // pin a release tag
+	Pre     bool   // consider prereleases
+	Force   bool   // allow updating a dev build
+}
+
+func (p UpdateParams) apply(q url.Values) {
+	if p.Version != "" {
+		q.Set("version", p.Version)
+	}
+	if p.Pre {
+		q.Set("pre", "1")
+	}
+	if p.Force {
+		q.Set("force", "1")
+	}
+}
+
+// UpdateStatus is the agent's reply to GET /update?check=1.
+type UpdateStatus struct {
+	Current    string `json:"current"`
+	Latest     string `json:"latest"`
+	Available  bool   `json:"available"`
+	Prerelease bool   `json:"prerelease"`
+	Notes      string `json:"notes,omitempty"`
+}
+
+// UpdateResult is the agent's reply to a successful POST /update.
+type UpdateResult struct {
+	Old        string `json:"old"`
+	New        string `json:"new"`
+	Restarting bool   `json:"restarting"`
+}
+
+// CheckUpdate asks the agent which release it would install, without applying.
+func (c *Client) CheckUpdate(ctx context.Context, p UpdateParams) (UpdateStatus, error) {
+	q := url.Values{}
+	q.Set("check", "1")
+	p.apply(q)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.url("/update", q), nil)
+	if err != nil {
+		return UpdateStatus{}, err
+	}
+	resp, err := c.httpClient().Do(req)
+	if err != nil {
+		return UpdateStatus{}, err
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode/100 != 2 {
+		return UpdateStatus{}, errFromResponse(resp)
+	}
+	var st UpdateStatus
+	if err := json.NewDecoder(resp.Body).Decode(&st); err != nil {
+		return UpdateStatus{}, err
+	}
+	return st, nil
+}
+
+// Update tells the agent to self-update and restart. The agent replies with the
+// old/new versions, then drops the connection as it restarts; a clean EOF after
+// a 2xx is treated as "restart initiated", not an error.
+func (c *Client) Update(ctx context.Context, p UpdateParams) (UpdateResult, error) {
+	q := url.Values{}
+	p.apply(q)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.url("/update", q), nil)
+	if err != nil {
+		return UpdateResult{}, err
+	}
+	resp, err := c.httpClient().Do(req)
+	if err != nil {
+		return UpdateResult{}, err
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode/100 != 2 {
+		return UpdateResult{}, errFromResponse(resp)
+	}
+	var res UpdateResult
+	if err := json.NewDecoder(resp.Body).Decode(&res); err != nil {
+		if errors.Is(err, io.ErrUnexpectedEOF) || errors.Is(err, io.EOF) {
+			// Agent restarted before the body fully flushed; the update was accepted.
+			return UpdateResult{Restarting: true}, nil
+		}
+		return UpdateResult{}, err
+	}
+	return res, nil
 }
 
 // Put uploads body to remotePath via POST /put.

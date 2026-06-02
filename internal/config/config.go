@@ -22,8 +22,9 @@ type Config struct {
 	AllowedTags   []string `json:"allowed_tags"`   // identity allowlist: ACL tags, e.g. tag:prod (used from P3)
 
 	// Secrets — never loaded from or written to the JSON file.
-	Token   string `json:"-"` // shared-token fallback (env VMRC_TOKEN)
-	AuthKey string `json:"-"` // tailnet auth key (env TS_AUTHKEY; used from P1)
+	Token       string `json:"-"` // shared-token fallback (env VMRC_TOKEN)
+	AuthKey     string `json:"-"` // tailnet auth key (env TS_AUTHKEY; used from P1)
+	GitHubToken string `json:"-"` // optional GitHub token (env GITHUB_TOKEN); only raises the self-update API rate limit
 }
 
 // paths bundles the per-OS default filesystem locations.

@@ -85,6 +85,36 @@ With no allowlist, the agent falls back to shared-token auth (`VMRC_TOKEN`); wit
 neither, every request is denied. The `--local` dev listener has no tailnet identity,
 so it is always token-only.
 
+## Updating
+
+Both binaries update themselves from this repo's GitHub Releases — download,
+SHA-256-verify against the release `checksums.txt`, then atomically replace their
+own executable. No GitHub token is needed (the repo is public); set `GITHUB_TOKEN`
+only if you hit the unauthenticated API rate limit.
+
+```sh
+vmrc update --self                 # update this local vmrc CLI
+vmrc update --self --check         # report the available version, install nothing
+vmrc update --self --version v0.3.0  # pin a specific release (reinstall/downgrade)
+
+vmrc update --all                  # drive every tag:vmrc agent to self-update
+vmrc update buildbox,vm1           # update named agents
+vmrc update --all --check          # report each agent's available version
+```
+
+On a VM you can also update the agent locally:
+
+```sh
+vmrc-agent update                  # stop service → replace binary → restart
+vmrc-agent update --check          # report only
+```
+
+Remote agent updates (`vmrc update --all`) drive each agent's authenticated
+`/update` endpoint: the agent fetches the release itself, replaces its binary,
+and exits so its boot service relaunches the new binary. A dev/source build
+(`version == "dev"`) refuses to update unless you pass `--force` or
+`--version <tag>`; prereleases are ignored unless you pass `--pre`.
+
 ## Driving VMs with an AI agent
 
 `vmrc` is designed to be driven by an AI agent, not just a human. An in-repo

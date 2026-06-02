@@ -45,6 +45,7 @@ func main() {
 			startCommand(),
 			stopCommand(),
 			statusCommand(),
+			updateCommand(),
 			captureHelperCommand(),
 		},
 	}

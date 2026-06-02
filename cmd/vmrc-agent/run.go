@@ -97,6 +97,8 @@ func resolveConfig(cmd *cli.Command) (config.Config, error) {
 	}
 	// authkey is a secret: env only, never a flag or JSON key.
 	cfg.AuthKey = os.Getenv("TS_AUTHKEY")
+	// github token is optional and env-only; it only raises the self-update API rate limit.
+	cfg.GitHubToken = os.Getenv("GITHUB_TOKEN")
 
 	warns, err := config.Validate(cfg)
 	if err != nil {
@@ -140,6 +142,12 @@ func serveAgent(ctx context.Context, cfg config.Config, local bool) error {
 		Capturer:  agent.ScreenCapturer{},
 		BaseDir:   cfg.BaseDir,
 		ReadGlobs: cfg.ReadGlobs,
+		Update: agent.UpdateConfig{
+			Repo:        updateRepo,
+			BinaryName:  serviceName,
+			Version:     version,
+			GitHubToken: cfg.GitHubToken,
+		},
 	}
 	hasAllowlist := len(cfg.AllowedLogins) > 0 || len(cfg.AllowedTags) > 0
 	if cfg.Token == "" && !hasAllowlist {

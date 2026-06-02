@@ -40,6 +40,7 @@ func main() {
 			shotCommand(),
 			getCommand(),
 			putCommand(),
+			updateCommand(),
 		},
 	}
 	// cli.Exit-wrapped errors carry an exit code and are handled by cli's default

@@ -27,9 +27,13 @@ the persisted state). `setup` is safe to re-run.
 .\vmrc-agent.exe install                # register the service (needs prior enroll)
 .\vmrc-agent.exe start | stop | status
 .\vmrc-agent.exe uninstall
+.\vmrc-agent.exe update                 # self-update: stop, replace binary, restart
+.\vmrc-agent.exe update --check         # report the available release, install nothing
 ```
 
-`install`/`start`/`stop`/`uninstall`/`setup` require an elevated shell; `status` does not.
+`install`/`start`/`stop`/`uninstall`/`setup`/`update` require an elevated shell; `status` does not.
+`update` pulls the matching release from GitHub, verifies it, replaces the on-disk binary
+(safe even while the service runs), and restarts the service so the new binary takes effect.
 
 ## State location
 
