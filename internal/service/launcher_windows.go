@@ -41,3 +41,36 @@ func runSchtasks(args ...string) (string, error) {
 	}
 	return string(out), nil
 }
+
+type winLauncher struct{ spec LaunchSpec }
+
+func (l winLauncher) Install() error   { _, err := runSchtasks(schtasksCreateArgs(l.spec)...); return err }
+func (l winLauncher) Uninstall() error { _, err := runSchtasks(schtasksDeleteArgs(l.spec.Name)...); return err }
+func (l winLauncher) Start() error     { _, err := runSchtasks(schtasksRunArgs(l.spec.Name)...); return err }
+func (l winLauncher) Stop() error      { _, err := runSchtasks(schtasksEndArgs(l.spec.Name)...); return err }
+
+func (l winLauncher) Status() (string, error) {
+	out, err := runSchtasks(schtasksQueryArgs(l.spec.Name)...)
+	if err != nil {
+		return "unknown", nil
+	}
+	return parseSchtasksStatus(out), nil
+}
+
+func parseSchtasksStatus(out string) string {
+	for _, line := range strings.Split(out, "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "Status:") {
+			v := strings.ToLower(strings.TrimSpace(strings.TrimPrefix(line, "Status:")))
+			switch {
+			case strings.Contains(v, "running"):
+				return "running"
+			case v != "":
+				return "stopped"
+			}
+		}
+	}
+	return "unknown"
+}
+
+func newOSLauncher(spec LaunchSpec) (Launcher, error) { return winLauncher{spec: spec}, nil }
