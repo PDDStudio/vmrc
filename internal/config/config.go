@@ -32,6 +32,7 @@ type paths struct {
 	ConfigPath string
 	StateDir   string
 	BaseDir    string
+	BinDir     string // managed binary dir used by user mode + relocation
 }
 
 // defaultPaths returns the conventional system locations for the given GOOS.
