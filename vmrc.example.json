@@ -2,6 +2,7 @@
   "hostname": "vmrc-buildbox",
   "state_dir": "/var/lib/vmrc/state",
   "base_dir": "/var/lib/vmrc/files",
+  "bin_dir": "/var/lib/vmrc/bin",
   "read_globs": ["*.log", "logs/*.txt"],
   "listen_port": 47800,
   "allowed_logins": ["you@example.com"],

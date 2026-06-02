@@ -38,14 +38,32 @@ On the VM you want to control, from a privileged shell (Administrator on Windows
    TS_AUTHKEY=tskey-... vmrc-agent setup
    ```
 
-That's it — `setup` writes the config, creates its directories, enrolls the VM on
-your tailnet, and installs + starts a boot service. After every reboot the agent
-rejoins the tailnet on its own (no auth key needed again). The key is used only
-during enrollment and is never written to disk. Re-running `setup` is safe.
+That's it — `setup` writes the config, copies the agent into a managed working
+directory, creates its directories, enrolls the VM on your tailnet, and installs +
+starts the agent so it returns automatically after a reboot/logon. The key is used
+only during enrollment and is never written to disk. Re-running `setup` is safe.
 
 See [docs/runbook-windows.md](docs/runbook-windows.md) for the lower-level
-commands (`run`/`install`/`start`/`stop`/`status`/`uninstall`), where state lives,
-and the screenshot/session-0 caveat.
+commands (`run`/`install`/`start`/`stop`/`status`/`uninstall`) and where state lives.
+
+### Install modes (user vs system)
+
+`setup` (and `install`/`start`/`stop`/`status`/`uninstall`) default to **user-session
+mode** and accept a `--system` override:
+
+| | Default — user mode | `--system` |
+|---|---|---|
+| Runs as | the logged-in user, in their desktop session | LocalSystem (boot service) |
+| Autostart | logon (Windows Scheduled Task; macOS/Linux user agent) | boot, before login |
+| Working dir | `%LOCALAPPDATA%\vmrc` (user-owned) | `C:\ProgramData\vmrc` (machine-wide) |
+| Screen capture | ✅ captures the live desktop | ❌ session-0 isolated |
+| `exec` privilege | the user, elevated (no UAC) | `SYSTEM` |
+| Available before login / at lock screen | ❌ (pair with auto-logon for headless) | ✅ |
+
+User mode is the default because it can see and drive the desktop. The agent's binary
+lives under `<workdir>/bin/` and `update` replaces it there (no elevation needed in
+user mode). The `--system` service path is retained as an override and is being
+hardened in a later phase.
 
 ## Quick start (host)
 
@@ -105,9 +123,17 @@ vmrc update --all --check          # report each agent's available version
 On a VM you can also update the agent locally:
 
 ```sh
-vmrc-agent update                  # stop service → replace binary → restart
+vmrc-agent update                  # stop → replace managed binary in bin/ → restart
 vmrc-agent update --check          # report only
 ```
+
+**Migrating a legacy system install to user mode:** if an older `--system`
+(LocalSystem) install is present and user mode isn't set up yet, `vmrc-agent update`
+performs a **one-time, idempotent migration** instead of an in-place swap: it copies
+the config, `state/` (preserving the tailnet node identity — same node, no
+re-enroll), and `files/` into `%LOCALAPPDATA%\vmrc`, registers the user logon agent,
+and removes the system service. The migration runs locally with no network call, so
+it works before the binary's release is fetchable.
 
 Remote agent updates (`vmrc update --all`) drive each agent's authenticated
 `/update` endpoint: the agent fetches the release itself, replaces its binary,
