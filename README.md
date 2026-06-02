@@ -89,8 +89,9 @@ so it is always token-only.
 
 `vmrc` is designed to be driven by an AI agent, not just a human. An in-repo
 Claude Code skill teaches an agent the screenshot → reason → act loop over the
-CLI — see [`skills/drive-vm/SKILL.md`](./skills/drive-vm/SKILL.md). To reproduce
-the full flow on a fresh VM, follow [docs/testing-on-a-vm.md](./docs/testing-on-a-vm.md).
+CLI — see [`.claude/skills/vmrc-cli/SKILL.md`](./.claude/skills/vmrc-cli/SKILL.md)
+(auto-discovered by Claude Code when you open this repo). To reproduce the full
+flow on a fresh VM, follow [docs/testing-on-a-vm.md](./docs/testing-on-a-vm.md).
 
 ## Install / build
 
@@ -176,7 +177,7 @@ authorizes callers by their Tailscale identity (and optionally a shared token).
 | [CLAUDE.md](./CLAUDE.md) | Project context + decisions for Claude Code in this repo |
 | [KICKOFF_PROMPT.md](./KICKOFF_PROMPT.md) | Contributor/AI build-session prompt — paste-ready to open a new build session |
 | [CONTRIBUTING.md](./CONTRIBUTING.md) | How to build, test, lint, and contribute |
-| [skills/drive-vm/SKILL.md](./skills/drive-vm/SKILL.md) | Claude Code skill: drive a VM fleet via the CLI |
+| [.claude/skills/vmrc-cli/SKILL.md](./.claude/skills/vmrc-cli/SKILL.md) | Claude Code skill: drive a VM fleet via the CLI |
 | [docs/testing-on-a-vm.md](./docs/testing-on-a-vm.md) | End-to-end Windows VM test walkthrough |
 | [docs/superpowers/specs/2026-06-01-vmrc-design.md](./docs/superpowers/specs/2026-06-01-vmrc-design.md) | Implementation-level design + phase plan (**authoritative for *how* we build**) |
 
