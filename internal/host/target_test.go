@@ -1,6 +1,9 @@
 package host
 
-import "testing"
+import (
+	"slices"
+	"testing"
+)
 
 func TestParseTargets(t *testing.T) {
 	tests := []struct {
@@ -21,7 +24,7 @@ func TestParseTargets(t *testing.T) {
 			if (err != nil) != tt.wantErr {
 				t.Fatalf("err = %v, wantErr %v", err, tt.wantErr)
 			}
-			if !tt.wantErr && (len(got) != len(tt.want) || (len(got) > 0 && got[0] != tt.want[0])) {
+			if !tt.wantErr && !slices.Equal(got, tt.want) {
 				t.Fatalf("got %v, want %v", got, tt.want)
 			}
 		})

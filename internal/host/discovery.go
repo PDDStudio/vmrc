@@ -22,8 +22,8 @@ type Agent struct {
 	OS      string
 }
 
-// statusSource is the slice of tailscale.com/client/local.Client that discovery
-// needs; *local.Client satisfies it. Tests inject a fake.
+// statusSource is the minimal interface extracted from tailscale.com/client/local.Client
+// that discovery needs; *local.Client satisfies it. Tests inject a fake.
 type statusSource interface {
 	Status(ctx context.Context) (*ipnstate.Status, error)
 }

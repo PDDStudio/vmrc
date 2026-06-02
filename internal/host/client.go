@@ -27,7 +27,13 @@ func (c *Client) httpClient() *http.Client {
 
 func (c *Client) url(endpoint string, q url.Values) string {
 	if c.Token != "" {
-		q.Set("token", c.Token)
+		// Clone before mutating so the caller's map is not modified.
+		clone := make(url.Values, len(q)+1)
+		for k, v := range q {
+			clone[k] = v
+		}
+		clone.Set("token", c.Token)
+		q = clone
 	}
 	u := c.BaseURL + endpoint
 	if enc := q.Encode(); enc != "" {

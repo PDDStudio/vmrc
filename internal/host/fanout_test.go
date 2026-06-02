@@ -7,6 +7,36 @@ import (
 	"testing"
 )
 
+// Bug 1: empty output must produce no labeled lines at all.
+func TestFormatExecEmptyOutputNoBlankLine(t *testing.T) {
+	results := []ExecResult{
+		{Name: "vm1", Out: nil, ExitStatus: 0},
+		{Name: "vm2", Out: []byte(""), ExitStatus: 0},
+	}
+	out, code := FormatExec(results, true)
+	if out != "" {
+		t.Fatalf("empty output should produce no lines, got %q", out)
+	}
+	if code != 0 {
+		t.Fatalf("code = %d, want 0", code)
+	}
+}
+
+// Bug 2: single-target transport error must not prefix with [name].
+func TestFormatExecSingleTargetErrorUnprefixed(t *testing.T) {
+	results := []ExecResult{{Name: "vm1", Err: errors.New("dial fail")}}
+	out, code := FormatExec(results, false)
+	if strings.Contains(out, "[") {
+		t.Fatalf("single-target error must not contain '[', got %q", out)
+	}
+	if !strings.Contains(out, "error:") {
+		t.Fatalf("single-target error must contain 'error:', got %q", out)
+	}
+	if code == 0 {
+		t.Fatalf("code must be non-zero, got %d", code)
+	}
+}
+
 func TestFormatExecSingleTargetUnprefixed(t *testing.T) {
 	out, code := FormatExec([]ExecResult{{Name: "vm1", Out: []byte("hello\n"), ExitStatus: 0}}, false)
 	if out != "hello\n" {

@@ -43,7 +43,11 @@ func FormatExec(results []ExecResult, multi bool) (string, int) {
 	code := 0
 	for _, r := range results {
 		if r.Err != nil {
-			fmt.Fprintf(&b, "[%s] error: %v\n", r.Name, r.Err)
+			if multi {
+				fmt.Fprintf(&b, "[%s] error: %v\n", r.Name, r.Err)
+			} else {
+				fmt.Fprintf(&b, "error: %v\n", r.Err)
+			}
 			if code == 0 {
 				code = 1
 			}
@@ -60,6 +64,9 @@ func FormatExec(results []ExecResult, multi bool) (string, int) {
 func writeLabeled(b *strings.Builder, name string, out []byte, multi bool) {
 	if !multi {
 		b.Write(out)
+		return
+	}
+	if len(out) == 0 {
 		return
 	}
 	for _, line := range strings.Split(strings.TrimRight(string(out), "\n"), "\n") {

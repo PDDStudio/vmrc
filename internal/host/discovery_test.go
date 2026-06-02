@@ -3,6 +3,7 @@ package host
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"tailscale.com/ipn/ipnstate"
@@ -66,6 +67,24 @@ func TestListWrapsDaemonError(t *testing.T) {
 	_, err := Discoverer{Source: src}.List(context.Background(), "tag:vmrc")
 	if err == nil {
 		t.Fatal("a daemon error must propagate")
+	}
+}
+
+// TestResolveAmbiguous builds a status where two peers share the same MagicDNS
+// short name (vm1) but differ in their full DNS name (two different tailnets).
+// Resolve must return an error that mentions ambiguity.
+func TestResolveAmbiguous(t *testing.T) {
+	src := fakeStatus{st: statusWith(
+		peer("vm1.netA.ts.net.", "linux", true, "tag:vmrc"),
+		peer("vm1.netB.ts.net.", "linux", true, "tag:vmrc"),
+	)}
+	d := Discoverer{Source: src}
+	_, err := d.Resolve(context.Background(), "vm1", "tag:vmrc")
+	if err == nil {
+		t.Fatal("ambiguous name must return an error")
+	}
+	if !strings.Contains(err.Error(), "ambiguous") {
+		t.Fatalf("error should mention ambiguity, got: %v", err)
 	}
 }
 
