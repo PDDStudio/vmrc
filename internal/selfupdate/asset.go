@@ -1,0 +1,114 @@
+package selfupdate
+
+import (
+	"strconv"
+	"strings"
+)
+
+// archiveExt is the goreleaser archive format extension for a GOOS.
+func archiveExt(goos string) string {
+	if goos == "windows" {
+		return ".zip"
+	}
+	return ".tar.gz"
+}
+
+// assetName builds the goreleaser archive filename for a binary/os/arch. It
+// mirrors .goreleaser.yaml's name_template
+// "{{ .Binary }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}" plus the format ext.
+func assetName(bin, tag, goos, goarch string) string {
+	return bin + "_" + tag + "_" + goos + "_" + goarch + archiveExt(goos)
+}
+
+// normalizeVersion strips a leading "v" and surrounding whitespace.
+func normalizeVersion(v string) string {
+	return strings.TrimPrefix(strings.TrimSpace(v), "v")
+}
+
+// splitPre separates a version's numeric core from its prerelease suffix.
+func splitPre(v string) (core, pre string) {
+	if i := strings.IndexByte(v, '-'); i >= 0 {
+		return v[:i], v[i+1:]
+	}
+	return v, ""
+}
+
+// isReleaseVersion reports whether v's core is dotted decimal (so "dev",
+// "", and other non-numeric strings are not release versions).
+func isReleaseVersion(v string) bool {
+	core, _ := splitPre(v)
+	if core == "" {
+		return false
+	}
+	for _, seg := range strings.Split(core, ".") {
+		if seg == "" {
+			return false
+		}
+		if _, err := strconv.Atoi(seg); err != nil {
+			return false
+		}
+	}
+	return true
+}
+
+// compareVersions returns -1, 0, or 1 comparing a vs b with basic SemVer
+// precedence: numeric core compared segment-by-segment, and a prerelease
+// ("1.2.0-rc1") sorts below its release ("1.2.0"). Non-release versions (e.g.
+// "dev") sort below any release version.
+func compareVersions(a, b string) int {
+	na, nb := normalizeVersion(a), normalizeVersion(b)
+	ra, rb := isReleaseVersion(na), isReleaseVersion(nb)
+	switch {
+	case !ra && !rb:
+		return strings.Compare(na, nb)
+	case !ra:
+		return -1
+	case !rb:
+		return 1
+	}
+	coreA, preA := splitPre(na)
+	coreB, preB := splitPre(nb)
+	if c := compareCore(coreA, coreB); c != 0 {
+		return c
+	}
+	switch {
+	case preA == "" && preB == "":
+		return 0
+	case preA == "": // release > prerelease
+		return 1
+	case preB == "":
+		return -1
+	default:
+		return strings.Compare(preA, preB)
+	}
+}
+
+// compareCore compares two dotted-decimal version cores.
+func compareCore(a, b string) int {
+	as, bs := strings.Split(a, "."), strings.Split(b, ".")
+	n := len(as)
+	if len(bs) > n {
+		n = len(bs)
+	}
+	for i := 0; i < n; i++ {
+		ai, bi := 0, 0
+		if i < len(as) {
+			ai, _ = strconv.Atoi(as[i])
+		}
+		if i < len(bs) {
+			bi, _ = strconv.Atoi(bs[i])
+		}
+		if ai != bi {
+			if ai < bi {
+				return -1
+			}
+			return 1
+		}
+	}
+	return 0
+}
+
+// isNewer reports whether remote is a strictly newer version than current.
+func isNewer(remote, current string) bool {
+	return compareVersions(remote, current) > 0
+}

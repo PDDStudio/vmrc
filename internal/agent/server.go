@@ -8,6 +8,7 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -20,6 +21,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/pddstudio/vmrc/internal/selfupdate"
 )
 
 // execTimeout bounds a single /exec command (packing/builds can be slow).
@@ -49,6 +52,53 @@ type Server struct {
 	// Authorizer gates every request. If nil, a TokenAuthorizer derived from
 	// Token is used (P3 will inject an identity-based one here).
 	Authorizer Authorizer
+	// Update enables the /update endpoint (remote self-update). When Update.Repo
+	// is empty, /update returns 501 Not Implemented.
+	Update UpdateConfig
+	// ExitFunc terminates the process after a successful update so the service
+	// supervisor relaunches the new binary; defaults to os.Exit. Injected in
+	// tests. RestartDelay bounds the flush window before that exit (default
+	// restartDelayDefault).
+	ExitFunc     func(int)
+	RestartDelay time.Duration
+	// execPathFn overrides os.Executable in tests so a POST /update applies to a
+	// temp file instead of the test binary. nil uses os.Executable.
+	execPathFn func() (string, error)
+}
+
+// UpdateConfig describes the running binary so the /update handler can pick the
+// matching GitHub release asset and replace it.
+type UpdateConfig struct {
+	Repo        string // "pddstudio/vmrc"
+	BinaryName  string // "vmrc-agent"
+	Version     string // current build version
+	GitHubToken string // optional; raises the GitHub API rate limit
+	APIBase     string // optional GitHub API root override (tests/proxies)
+}
+
+// restartDelayDefault is the flush window between writing the /update response
+// and exiting to let the supervisor relaunch the new binary.
+const restartDelayDefault = 750 * time.Millisecond
+
+func (s *Server) exit() func(int) {
+	if s.ExitFunc != nil {
+		return s.ExitFunc
+	}
+	return os.Exit
+}
+
+func (s *Server) restartDelay() time.Duration {
+	if s.RestartDelay > 0 {
+		return s.RestartDelay
+	}
+	return restartDelayDefault
+}
+
+func (s *Server) executable() (string, error) {
+	if s.execPathFn != nil {
+		return s.execPathFn()
+	}
+	return os.Executable()
 }
 
 // Handler returns the HTTP mux for all endpoints.
@@ -61,6 +111,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/spawn", s.handleSpawn)
 	mux.HandleFunc("/get", s.handleGet)
 	mux.HandleFunc("/put", s.handlePut)
+	mux.HandleFunc("/update", s.handleUpdate)
 	return mux
 }
 
@@ -317,4 +368,106 @@ func (s *Server) handlePut(w http.ResponseWriter, r *http.Request) {
 	s.logf("put    <- %s (%d bytes)", rel, n)
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	_, _ = fmt.Fprintf(w, "wrote %d bytes to %s\n", n, rel)
+}
+
+// updateStatus is the JSON reply to GET /update?check=1.
+type updateStatus struct {
+	Current    string `json:"current"`
+	Latest     string `json:"latest"`
+	Available  bool   `json:"available"`
+	Prerelease bool   `json:"prerelease"`
+	Notes      string `json:"notes,omitempty"`
+}
+
+// updateResult is the JSON reply to a POST /update.
+type updateResult struct {
+	Old        string `json:"old"`
+	New        string `json:"new"`
+	Restarting bool   `json:"restarting"`
+}
+
+func (s *Server) writeJSON(w http.ResponseWriter, v any) {
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(v)
+}
+
+// handleUpdate checks GitHub for a newer agent release (GET ?check=1) or applies
+// one and restarts the process (POST). Replacing the binary while the service
+// runs is safe — the underlying replace renames the running image aside — but to
+// actually run the new binary the process must exit so its service supervisor
+// relaunches it (systemd Restart=always / launchd KeepAlive / Windows
+// OnFailure:restart all relaunch on a non-zero exit). The exit is therefore
+// non-zero and deferred briefly so the HTTP response flushes first.
+func (s *Server) handleUpdate(w http.ResponseWriter, r *http.Request) {
+	if !s.authed(w, r) {
+		return
+	}
+	if s.Update.Repo == "" {
+		http.Error(w, "self-update not configured", http.StatusNotImplemented)
+		return
+	}
+	q := r.URL.Query()
+	t := selfupdate.Target{
+		Repo:       s.Update.Repo,
+		BinaryName: s.Update.BinaryName,
+		Version:    s.Update.Version,
+		Token:      s.Update.GitHubToken,
+		APIBase:    s.Update.APIBase,
+	}
+	opt := selfupdate.Options{PinnedTag: q.Get("version"), AllowPrerelease: q.Get("pre") != ""}
+
+	rel, err := selfupdate.Check(r.Context(), t, opt)
+	upToDate := errors.Is(err, selfupdate.ErrUpToDate)
+	if err != nil && !upToDate {
+		s.logf("update DENIED/ERROR check: %v", err)
+		http.Error(w, err.Error(), http.StatusBadGateway)
+		return
+	}
+
+	// GET ?check=1: report only.
+	if r.Method == http.MethodGet {
+		st := updateStatus{Current: s.Update.Version, Latest: s.Update.Version}
+		if !upToDate {
+			st.Latest, st.Available, st.Prerelease, st.Notes = rel.TagName, true, rel.Prerelease, rel.Notes
+		}
+		s.logf("update check: current=%s latest=%s available=%v", st.Current, st.Latest, st.Available)
+		s.writeJSON(w, st)
+		return
+	}
+	if r.Method != http.MethodPost {
+		http.Error(w, "use GET ?check=1 or POST", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// POST: apply.
+	if upToDate {
+		s.writeJSON(w, updateResult{Old: s.Update.Version, New: s.Update.Version, Restarting: false})
+		return
+	}
+	if err := selfupdate.GateDevBuild(s.Update.Version, q.Get("force") != "", q.Get("version")); err != nil {
+		http.Error(w, err.Error(), http.StatusForbidden)
+		return
+	}
+	exe, err := s.executable()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	s.logf("update applying %s -> %s at %s", s.Update.Version, rel.TagName, exe)
+	if err := selfupdate.Apply(r.Context(), t, rel, exe); err != nil {
+		s.logf("update ERROR apply: %v", err)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	s.logf("update applied -> %s; restarting", rel.TagName)
+	s.writeJSON(w, updateResult{Old: s.Update.Version, New: rel.TagName, Restarting: true})
+	if f, ok := w.(http.Flusher); ok {
+		f.Flush()
+	}
+	// Exit non-zero after a brief flush window so the supervisor relaunches the
+	// new binary (resolved via os.Executable() at launch).
+	go func(exit func(int), delay time.Duration) {
+		time.Sleep(delay)
+		exit(1)
+	}(s.exit(), s.restartDelay())
 }

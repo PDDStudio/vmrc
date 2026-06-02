@@ -59,8 +59,9 @@ entrypoint) are also captured in the brainstorming session transcript. Port them
 - **Do not bind the agent to a public address.** The tailnet (tsnet listener) is the only
   ingress. No `0.0.0.0` public listener.
 - **Do not add dependencies beyond `tsnet`, `kardianos/service`, `kbinani/screenshot`,
-  `urfave/cli/v3`, `golang.org/x/sys` (Windows elevation check; maintainer-approved P2), and an
-  MCP SDK (P6)** without asking the maintainer first.
+  `urfave/cli/v3`, `golang.org/x/sys` (Windows elevation check; maintainer-approved P2),
+  `github.com/minio/selfupdate` (atomic in-place binary replacement for self-update;
+  maintainer-approved), and an MCP SDK (P6)** without asking the maintainer first.
 - **Do not push to `main` directly.** Feature branches, intentional merges.
 - **Do not copy any application-specific bits** (a hardcoded log allowlist, packaging logic) —
   this tool is generic; paths/allowlists are configurable.
