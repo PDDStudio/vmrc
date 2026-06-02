@@ -43,7 +43,18 @@ func captureViaActiveSession() ([]byte, error) {
 	if err := windows.CreatePipe(&rd, &wr, &sa, 0); err != nil {
 		return nil, fmt.Errorf("create pipe: %w", err)
 	}
-	defer windows.CloseHandle(rd)
+	// rd has a single owner: the raw handle until it's wrapped in an *os.File
+	// below, then the *os.File (whose Close closes it exactly once). os.NewFile
+	// installs a finalizer that would also close the raw handle, so we must not
+	// CloseHandle(rd) separately once wrapped.
+	var rf *os.File
+	defer func() {
+		if rf != nil {
+			rf.Close()
+		} else {
+			windows.CloseHandle(rd)
+		}
+	}()
 	// Keep the read end out of the child.
 	if err := windows.SetHandleInformation(rd, windows.HANDLE_FLAG_INHERIT, 0); err != nil {
 		windows.CloseHandle(wr)
@@ -85,7 +96,7 @@ func captureViaActiveSession() ([]byte, error) {
 	defer windows.CloseHandle(pi.Process)
 
 	// Read the PNG from the pipe (drains as the child writes), then reap it.
-	rf := os.NewFile(uintptr(rd), "capture-pipe")
+	rf = os.NewFile(uintptr(rd), "capture-pipe")
 	data, rerr := io.ReadAll(rf)
 
 	if _, err := windows.WaitForSingleObject(pi.Process, windows.INFINITE); err != nil {
