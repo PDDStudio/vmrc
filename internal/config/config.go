@@ -13,11 +13,13 @@ import (
 
 // Config holds the agent's runtime configuration.
 type Config struct {
-	Hostname   string   `json:"hostname"`    // tsnet node name (used from P1)
-	StateDir   string   `json:"state_dir"`   // tsnet state dir (used from P1)
-	BaseDir    string   `json:"base_dir"`    // root for exec cwd, get/put, read
-	ReadGlobs  []string `json:"read_globs"`  // allowlist of readable path globs
-	ListenPort int      `json:"listen_port"` // HTTP listen port
+	Hostname      string   `json:"hostname"`       // tsnet node name (used from P1)
+	StateDir      string   `json:"state_dir"`      // tsnet state dir (used from P1)
+	BaseDir       string   `json:"base_dir"`       // root for exec cwd, get/put, read
+	ReadGlobs     []string `json:"read_globs"`     // allowlist of readable path globs
+	ListenPort    int      `json:"listen_port"`    // HTTP listen port
+	AllowedLogins []string `json:"allowed_logins"` // identity allowlist: Tailscale login names (used from P3)
+	AllowedTags   []string `json:"allowed_tags"`   // identity allowlist: ACL tags, e.g. tag:prod (used from P3)
 
 	// Secrets — never loaded from or written to the JSON file.
 	Token   string `json:"-"` // shared-token fallback (env VMRC_TOKEN)

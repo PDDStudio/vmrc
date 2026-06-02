@@ -41,6 +41,23 @@ See [docs/runbook-windows.md](docs/runbook-windows.md) for the lower-level
 commands (`run`/`install`/`start`/`stop`/`status`/`uninstall`), where state lives,
 and the screenshot/session-0 caveat.
 
+### Restricting who can drive the agent
+
+By default the agent is reachable by anything your Tailscale ACLs let onto port
+`47800`. To authorize by **Tailscale identity**, set an allowlist — `allowed_logins`
+(login names) and/or `allowed_tags` (ACL tags) in the config file, or
+`--allow-login` / `--allow-tag` on `setup`/`run` (repeatable). With an allowlist:
+
+- an allowlisted caller is authorized with **no token**;
+- a caller whose identity resolves but is **not** allowlisted is denied **even with a
+  valid token**;
+- the optional shared token (`VMRC_TOKEN`, env only) is a fallback used **only** for
+  callers whose identity can't be resolved.
+
+With no allowlist, the agent falls back to shared-token auth (`VMRC_TOKEN`); with
+neither, every request is denied. The `--local` dev listener has no tailnet identity,
+so it is always token-only.
+
 ## Why it exists
 
 It generalizes a proven internal control agent that let a human *and* an AI agent drive a

@@ -3,5 +3,7 @@
   "state_dir": "/var/lib/vmrc/state",
   "base_dir": "/var/lib/vmrc/files",
   "read_globs": ["*.log", "logs/*.txt"],
-  "listen_port": 47800
+  "listen_port": 47800,
+  "allowed_logins": ["you@example.com"],
+  "allowed_tags": ["tag:vmrc-admin"]
 }
