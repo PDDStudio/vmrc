@@ -38,22 +38,27 @@ func getAction(ctx context.Context, cmd *cli.Command) error {
 	defer func() { _ = rc.Close() }()
 
 	local := cmd.Args().Get(1)
-	var dst io.Writer = os.Stdout
-	if local != "-" {
-		f, err := os.Create(local)
-		if err != nil {
-			return err
-		}
-		defer func() { _ = f.Close() }()
-		dst = f
+	if local == "-" {
+		_, err = io.Copy(os.Stdout, rc)
+		return err
 	}
-	n, err := io.Copy(dst, rc)
+
+	f, err := os.Create(local)
 	if err != nil {
 		return err
 	}
-	if local != "-" {
-		fmt.Fprintf(os.Stderr, "wrote %d bytes to %s\n", n, local)
+	n, err := io.Copy(f, rc)
+	if err != nil {
+		_ = f.Close() // best-effort; the copy error is the real failure
+		return err
 	}
+	// Close before reporting success: for a write target, a failed Close
+	// (flush/disk-full) means a truncated file, so surface it rather than
+	// claiming the download succeeded.
+	if err := f.Close(); err != nil {
+		return fmt.Errorf("close %s: %w", local, err)
+	}
+	fmt.Fprintf(os.Stderr, "wrote %d bytes to %s\n", n, local)
 	return nil
 }
 
