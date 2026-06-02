@@ -1,7 +1,12 @@
 # vmrc — VM remote control
 
-> **Status: in development.** The `vmrc-agent` boot service + one-click `setup` are
-> implemented (P2). See the [quick start](#quick-start-agent) below.
+[![CI](https://github.com/pddstudio/vmrc/actions/workflows/ci.yml/badge.svg)](https://github.com/pddstudio/vmrc/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
+
+> **Status: working.** Host CLI + self-installing agent + embedded tailnet + identity
+> auth + cross-platform release builds are all implemented. On Windows the agent
+> captures the logged-in user's desktop even when running as a boot service. The native
+> MCP server mode (`vmrc mcp`) is planned. See the quick starts below.
 
 ## What this is
 
@@ -78,6 +83,13 @@ By default the agent is reachable by anything your Tailscale ACLs let onto port
 With no allowlist, the agent falls back to shared-token auth (`VMRC_TOKEN`); with
 neither, every request is denied. The `--local` dev listener has no tailnet identity,
 so it is always token-only.
+
+## Driving VMs with an AI agent
+
+`vmrc` is designed to be driven by an AI agent, not just a human. An in-repo
+Claude Code skill teaches an agent the screenshot → reason → act loop over the
+CLI — see [`skills/drive-vm/SKILL.md`](./skills/drive-vm/SKILL.md). To reproduce
+the full flow on a fresh VM, follow [docs/testing-on-a-vm.md](./docs/testing-on-a-vm.md).
 
 ## Install / build
 
@@ -161,7 +173,10 @@ authorizes callers by their Tailscale identity (and optionally a shared token).
 | [ARCHITECTURE.md](./ARCHITECTURE.md) | Technical design: agent, tunnel, service, host CLI, endpoints, security |
 | [ROADMAP.md](./ROADMAP.md) | Phased implementation plan (P0→P6) with done-checks |
 | [CLAUDE.md](./CLAUDE.md) | Project context + decisions for Claude Code in this repo |
-| [KICKOFF_PROMPT.md](./KICKOFF_PROMPT.md) | Paste-ready prompt to open the build session |
+| [KICKOFF_PROMPT.md](./KICKOFF_PROMPT.md) | Contributor/AI build-session prompt — paste-ready to open a new build session |
+| [CONTRIBUTING.md](./CONTRIBUTING.md) | How to build, test, lint, and contribute |
+| [skills/drive-vm/SKILL.md](./skills/drive-vm/SKILL.md) | Claude Code skill: drive a VM fleet via the CLI |
+| [docs/testing-on-a-vm.md](./docs/testing-on-a-vm.md) | End-to-end Windows VM test walkthrough |
 | [docs/superpowers/specs/2026-06-01-vmrc-design.md](./docs/superpowers/specs/2026-06-01-vmrc-design.md) | Implementation-level design + phase plan (**authoritative for *how* we build**) |
 
 ## Decided direction (do not re-litigate)
