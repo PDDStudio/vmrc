@@ -47,6 +47,22 @@ func TestLoadFileKeepsUnsetDefaults(t *testing.T) {
 	}
 }
 
+func TestLoadFileOverlaysIdentityAllowlists(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "vmrc.json")
+	os.WriteFile(path, []byte(`{"allowed_logins":["alice@example.com"],"allowed_tags":["tag:prod","tag:lab"]}`), 0o644)
+	out, err := LoadFile(Defaults(), path)
+	if err != nil {
+		t.Fatalf("LoadFile err = %v", err)
+	}
+	if len(out.AllowedLogins) != 1 || out.AllowedLogins[0] != "alice@example.com" {
+		t.Fatalf("AllowedLogins = %v", out.AllowedLogins)
+	}
+	if len(out.AllowedTags) != 2 || out.AllowedTags[0] != "tag:prod" || out.AllowedTags[1] != "tag:lab" {
+		t.Fatalf("AllowedTags = %v", out.AllowedTags)
+	}
+}
+
 func TestLoadFileBadJSON(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "vmrc.json")

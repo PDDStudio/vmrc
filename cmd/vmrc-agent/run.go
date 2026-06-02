@@ -28,6 +28,8 @@ func runCommand() *cli.Command {
 			&cli.StringFlag{Name: "base-dir", Usage: "root for exec cwd, get/put and read", Sources: cli.EnvVars("VMRC_BASE_DIR")},
 			&cli.IntFlag{Name: "listen-port", Usage: "HTTP listen port", Sources: cli.EnvVars("VMRC_LISTEN_PORT")},
 			&cli.StringSliceFlag{Name: "read-glob", Usage: "allowlist glob for /read (repeatable)"},
+			&cli.StringSliceFlag{Name: "allow-login", Usage: "identity allowlist: Tailscale login name (repeatable)"},
+			&cli.StringSliceFlag{Name: "allow-tag", Usage: "identity allowlist: ACL tag, e.g. tag:prod (repeatable)"},
 			&cli.StringFlag{Name: "token", Usage: "shared-token fallback (prefer the VMRC_TOKEN env var)", Sources: cli.EnvVars("VMRC_TOKEN")},
 			&cli.StringFlag{Name: "hostname", Usage: "tsnet node name on the tailnet", Sources: cli.EnvVars("VMRC_HOSTNAME")},
 			&cli.StringFlag{Name: "state-dir", Usage: "tsnet state directory", Sources: cli.EnvVars("VMRC_STATE_DIR")},
@@ -78,6 +80,12 @@ func resolveConfig(cmd *cli.Command) (config.Config, error) {
 	if cmd.IsSet("read-glob") {
 		cfg.ReadGlobs = cmd.StringSlice("read-glob")
 	}
+	if cmd.IsSet("allow-login") {
+		cfg.AllowedLogins = cmd.StringSlice("allow-login")
+	}
+	if cmd.IsSet("allow-tag") {
+		cfg.AllowedTags = cmd.StringSlice("allow-tag")
+	}
 	if cmd.IsSet("token") {
 		cfg.Token = cmd.String("token")
 	}
@@ -121,16 +129,22 @@ func serveAgent(ctx context.Context, cfg config.Config, local bool) error {
 		return err
 	}
 	srv := &agent.Server{
-		Token:     cfg.Token,
 		Capturer:  agent.ScreenCapturer{},
 		BaseDir:   cfg.BaseDir,
 		ReadGlobs: cfg.ReadGlobs,
 	}
-	if cfg.Token == "" {
-		log.Printf("WARNING: no token configured; all requests will be denied until VMRC_TOKEN is set")
+	hasAllowlist := len(cfg.AllowedLogins) > 0 || len(cfg.AllowedTags) > 0
+	if cfg.Token == "" && !hasAllowlist {
+		log.Printf("WARNING: no token and no identity allowlist configured; all requests will be denied")
 	}
 
 	if local {
+		// --local has no tailnet, so WhoIs cannot resolve identity; the token
+		// governs and any allowlist is informational only.
+		if hasAllowlist {
+			log.Printf("note: --local cannot resolve tailnet identity; identity allowlist is NOT enforced, token governs")
+		}
+		srv.Authorizer = agent.AuthorizerFor(nil, cfg.AllowedLogins, cfg.AllowedTags, cfg.Token)
 		addr := fmt.Sprintf("127.0.0.1:%d", cfg.ListenPort)
 		ln, err := net.Listen("tcp", addr)
 		if err != nil {
@@ -149,8 +163,15 @@ func serveAgent(ctx context.Context, cfg config.Config, local bool) error {
 	if err != nil {
 		return fmt.Errorf("bringing up tunnel: %w", err)
 	}
-	log.Printf("vmrc-agent listening on %s://%s:%d (tailnet; base=%s, read globs=%v)",
-		tun.Scheme(), tun.FQDN(), cfg.ListenPort, cfg.BaseDir, cfg.ReadGlobs)
+	// Over the tailnet, identity (if an allowlist is configured) governs, with
+	// the token as a fallback for peers WhoIs cannot resolve.
+	srv.Authorizer = agent.AuthorizerFor(tun.LocalClient(), cfg.AllowedLogins, cfg.AllowedTags, cfg.Token)
+	authMode := "token"
+	if hasAllowlist {
+		authMode = "identity allowlist"
+	}
+	log.Printf("vmrc-agent listening on %s://%s:%d (tailnet; auth=%s, base=%s, read globs=%v)",
+		tun.Scheme(), tun.FQDN(), cfg.ListenPort, authMode, cfg.BaseDir, cfg.ReadGlobs)
 	return serve(ctx, srv.Handler(), tun.Listener(), tun.Close)
 }
 
