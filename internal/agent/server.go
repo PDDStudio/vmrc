@@ -238,7 +238,7 @@ func (s *Server) handleSpawn(w http.ResponseWriter, r *http.Request) {
 	_ = c.Process.Release()
 	s.logf("spawn  pid=%d (detached): %s", pid, cmdline)
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-	fmt.Fprintf(w, "spawned pid %d\n", pid)
+	_, _ = fmt.Fprintf(w, "spawned pid %d\n", pid)
 }
 
 // handleGet serves ?path=<relative> from within the base dir (no escaping it).
@@ -306,5 +306,5 @@ func (s *Server) handlePut(w http.ResponseWriter, r *http.Request) {
 	}
 	s.logf("put    <- %s (%d bytes)", rel, n)
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-	fmt.Fprintf(w, "wrote %d bytes to %s\n", n, rel)
+	_, _ = fmt.Fprintf(w, "wrote %d bytes to %s\n", n, rel)
 }

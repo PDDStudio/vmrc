@@ -21,7 +21,9 @@ func TestLoadFileEmptyPathIsNoop(t *testing.T) {
 func TestLoadFileOverlays(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "vmrc.json")
-	os.WriteFile(path, []byte(`{"base_dir":"/srv","read_globs":["*.log"],"listen_port":9000}`), 0o644)
+	if err := os.WriteFile(path, []byte(`{"base_dir":"/srv","read_globs":["*.log"],"listen_port":9000}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	out, err := LoadFile(Defaults(), path)
 	if err != nil {
 		t.Fatalf("LoadFile err = %v", err)
@@ -38,7 +40,9 @@ func TestLoadFileKeepsUnsetDefaults(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "vmrc.json")
 	// Only base_dir set; listen_port must keep its default.
-	os.WriteFile(path, []byte(`{"base_dir":"/srv"}`), 0o644)
+	if err := os.WriteFile(path, []byte(`{"base_dir":"/srv"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	out, err := LoadFile(Defaults(), path)
 	if err != nil {
 		t.Fatalf("LoadFile err = %v", err)
@@ -51,7 +55,9 @@ func TestLoadFileKeepsUnsetDefaults(t *testing.T) {
 func TestLoadFileOverlaysIdentityAllowlists(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "vmrc.json")
-	os.WriteFile(path, []byte(`{"allowed_logins":["alice@example.com"],"allowed_tags":["tag:prod","tag:lab"]}`), 0o644)
+	if err := os.WriteFile(path, []byte(`{"allowed_logins":["alice@example.com"],"allowed_tags":["tag:prod","tag:lab"]}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	out, err := LoadFile(Defaults(), path)
 	if err != nil {
 		t.Fatalf("LoadFile err = %v", err)
@@ -67,7 +73,9 @@ func TestLoadFileOverlaysIdentityAllowlists(t *testing.T) {
 func TestLoadFileBadJSON(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "vmrc.json")
-	os.WriteFile(path, []byte(`{not json`), 0o644)
+	if err := os.WriteFile(path, []byte(`{not json`), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := LoadFile(Defaults(), path); err == nil {
 		t.Fatal("bad JSON must return an error")
 	}
@@ -77,7 +85,9 @@ func TestLoadFileIgnoresSecretKeys(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "vmrc.json")
 	// token/authkey in the file must NOT populate the secret fields.
-	os.WriteFile(path, []byte(`{"token":"leaked","authkey":"leaked"}`), 0o644)
+	if err := os.WriteFile(path, []byte(`{"token":"leaked","authkey":"leaked"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	out, err := LoadFile(Defaults(), path)
 	if err != nil {
 		t.Fatalf("LoadFile err = %v", err)

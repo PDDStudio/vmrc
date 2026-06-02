@@ -35,7 +35,7 @@ func getAction(ctx context.Context, cmd *cli.Command) error {
 	if err != nil {
 		return err
 	}
-	defer rc.Close()
+	defer func() { _ = rc.Close() }()
 
 	local := cmd.Args().Get(1)
 	var dst io.Writer = os.Stdout
@@ -44,7 +44,7 @@ func getAction(ctx context.Context, cmd *cli.Command) error {
 		if err != nil {
 			return err
 		}
-		defer f.Close()
+		defer func() { _ = f.Close() }()
 		dst = f
 	}
 	n, err := io.Copy(dst, rc)
@@ -86,7 +86,7 @@ func putAction(ctx context.Context, cmd *cli.Command) error {
 		if err != nil {
 			return err
 		}
-		defer f.Close()
+		defer func() { _ = f.Close() }()
 		src = f
 	}
 	if err := clientFor(cmd, a).Put(ctx, remote, src); err != nil {

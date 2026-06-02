@@ -19,7 +19,7 @@ func TestExecParsesOutputAndExitStatus(t *testing.T) {
 			t.Errorf("unexpected request: %s?%s", r.URL.Path, r.URL.RawQuery)
 		}
 		w.Header().Set("X-Exit-Status", "3")
-		io.WriteString(w, "hi\n")
+		_, _ = io.WriteString(w, "hi\n")
 	}))
 	defer srv.Close()
 	out, status, err := newClient(srv, "").Exec(context.Background(), "echo hi")
@@ -37,11 +37,11 @@ func TestTokenAppendedOnlyWhenSet(t *testing.T) {
 		sawToken = r.URL.Query().Get("token")
 	}))
 	defer srv.Close()
-	newClient(srv, "").Exec(context.Background(), "x")
+	_, _, _ = newClient(srv, "").Exec(context.Background(), "x")
 	if sawToken != "" {
 		t.Fatalf("no token configured but ?token=%q sent", sawToken)
 	}
-	newClient(srv, "sekret").Exec(context.Background(), "x")
+	_, _, _ = newClient(srv, "sekret").Exec(context.Background(), "x")
 	if sawToken != "sekret" {
 		t.Fatalf("token not forwarded, got %q", sawToken)
 	}
@@ -78,14 +78,14 @@ func TestPutPostsBody(t *testing.T) {
 
 func TestGetReturnsBody(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		io.WriteString(w, "filedata")
+		_, _ = io.WriteString(w, "filedata")
 	}))
 	defer srv.Close()
 	rc, err := newClient(srv, "").Get(context.Background(), "a.txt")
 	if err != nil {
 		t.Fatalf("Get err = %v", err)
 	}
-	defer rc.Close()
+	defer func() { _ = rc.Close() }()
 	b, _ := io.ReadAll(rc)
 	if string(b) != "filedata" {
 		t.Fatalf("body = %q", b)
