@@ -1,9 +1,9 @@
 ---
-name: drive-vm
+name: vmrc-cli
 description: Use when you need to remote-control a VM (or a fleet of VMs) over the tailnet — run commands, capture and read the screen, and transfer files — via the vmrc host CLI.
 ---
 
-# Driving VMs with vmrc
+# Driving VMs with the vmrc CLI
 
 You control VMs through the `vmrc` host CLI, which talks to a `vmrc-agent`
 running on each VM over a Tailscale tailnet. You operate the CLI; you do not
@@ -63,8 +63,9 @@ Notes:
   deliberate; prefer reversible, scoped actions. Read before you write.
 - Never print or log `TS_AUTHKEY` / `VMRC_TOKEN`.
 
-## Installing this skill into Claude Code
+## Where this skill lives
 
-Copy this directory into a skills location Claude Code loads (e.g. a plugin's
-`skills/` directory, or a project `.claude/skills/drive-vm/`). The agent will
-then invoke it whenever VM remote-control is needed.
+This skill ships in the repo at `.claude/skills/vmrc-cli/`, so Claude Code
+auto-discovers it whenever you open this project. To use it from another
+workspace, copy this directory into that project's `.claude/skills/`, or into a
+user-level (`~/.claude/skills/`) or plugin skills directory.
