@@ -2,6 +2,7 @@
 
 [![CI](https://github.com/pddstudio/vmrc/actions/workflows/ci.yml/badge.svg)](https://github.com/pddstudio/vmrc/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
+[![Go](https://img.shields.io/github/go-mod/go-version/pddstudio/vmrc)](./go.mod)
 
 > **Status: working.** Host CLI + self-installing agent + embedded tailnet + identity
 > auth + cross-platform release builds are all implemented. On Windows the agent
