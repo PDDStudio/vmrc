@@ -41,6 +41,27 @@ See [docs/runbook-windows.md](docs/runbook-windows.md) for the lower-level
 commands (`run`/`install`/`start`/`stop`/`status`/`uninstall`), where state lives,
 and the screenshot/session-0 caveat.
 
+## Quick start (host)
+
+On your main machine (which already runs Tailscale), build `vmrc` and drive the fleet:
+
+```sh
+go build -o vmrc ./cmd/vmrc
+
+vmrc ls                                  # list tag:vmrc agents on your tailnet
+vmrc exec buildbox -- systeminfo         # run a command, stream output + exit code
+vmrc exec vm1,vm2 -- whoami              # fan out to several VMs (labeled output)
+vmrc exec --all -- "uptime"              # every tag:vmrc agent
+vmrc shot buildbox -o shot.png           # screenshot
+vmrc get buildbox:C:\out\app.zip ./app.zip
+vmrc put ./tool.exe buildbox:C:\tools\tool.exe
+```
+
+Discovery uses your system Tailscale (no agent list to maintain). Auth is by your tailnet
+identity — an agent that allowlists you needs no token; for token-fallback agents pass
+`--token` or set `VMRC_TOKEN`. Use `--scheme https` if an agent serves TLS, and `--tag` to
+target a different ACL tag.
+
 ### Restricting who can drive the agent
 
 By default the agent is reachable by anything your Tailscale ACLs let onto port
