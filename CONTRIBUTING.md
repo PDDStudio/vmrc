@@ -10,6 +10,16 @@ Thanks for your interest in vmrc. This is a small Go project with two binaries
 
 ## Build & run
 
+A top-level `Makefile` wraps the common tasks (`make help` lists them):
+
+```sh
+make build        # both binaries → bin/ (version-stamped from git)
+make dev-install  # build the host CLI and symlink it onto your PATH (live rebuilds)
+make check        # vet + test + lint — the same gate CI runs
+```
+
+The underlying `go` commands, if you prefer them directly:
+
 ```sh
 go build -o vmrc       ./cmd/vmrc          # host CLI
 go build -o vmrc-agent ./cmd/vmrc-agent    # VM agent
