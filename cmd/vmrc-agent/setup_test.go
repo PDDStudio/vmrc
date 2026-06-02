@@ -6,6 +6,25 @@ import (
 	"testing"
 )
 
+func TestSetupRelocatesBinaryIntoBinDir(t *testing.T) {
+	srcDir := t.TempDir()
+	src := filepath.Join(srcDir, binaryFileName())
+	if err := os.WriteFile(src, []byte("AGENT"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	binDir := filepath.Join(t.TempDir(), "bin")
+	dst, err := relocateRunningBinary(src, binDir)
+	if err != nil {
+		t.Fatalf("relocateRunningBinary: %v", err)
+	}
+	if filepath.Dir(dst) != binDir {
+		t.Fatalf("binary not placed in bin dir: %q", dst)
+	}
+	if b, _ := os.ReadFile(dst); string(b) != "AGENT" {
+		t.Fatalf("content mismatch")
+	}
+}
+
 func TestNeedEnroll(t *testing.T) {
 	// authkey present → always enroll (refresh identity / first run)
 	if !needEnroll(false, "tskey-abc") {

@@ -16,6 +16,7 @@ type Config struct {
 	Hostname      string   `json:"hostname"`       // tsnet node name (used from P1)
 	StateDir      string   `json:"state_dir"`      // tsnet state dir (used from P1)
 	BaseDir       string   `json:"base_dir"`       // root for exec cwd, get/put, read
+	BinDir        string   `json:"bin_dir"`        // managed binary dir (user mode)
 	ReadGlobs     []string `json:"read_globs"`     // allowlist of readable path globs
 	ListenPort    int      `json:"listen_port"`    // HTTP listen port
 	AllowedLogins []string `json:"allowed_logins"` // identity allowlist: Tailscale login names (used from P3)
@@ -32,6 +33,7 @@ type paths struct {
 	ConfigPath string
 	StateDir   string
 	BaseDir    string
+	BinDir     string // managed binary dir used by user mode + relocation
 }
 
 // defaultPaths returns the conventional system locations for the given GOOS.
@@ -65,6 +67,19 @@ func defaultPaths(goos string) paths {
 
 // DefaultConfigPath is the config-file location used when --config is unset.
 func DefaultConfigPath() string { return defaultPaths(runtime.GOOS).ConfigPath }
+
+// ConfigPathFor returns the default config-file path for the given mode:
+// the per-user agent.json for ModeUser, or the system default for ModeSystem.
+func ConfigPathFor(mode Mode) (string, error) {
+	if mode == ModeUser {
+		base, err := userAppDataDir()
+		if err != nil {
+			return "", err
+		}
+		return userPaths(runtime.GOOS, base).ConfigPath, nil
+	}
+	return DefaultConfigPath(), nil
+}
 
 // Defaults returns the compiled-in defaults for the current OS.
 func Defaults() Config {

@@ -5,7 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 
+	"github.com/pddstudio/vmrc/internal/config"
 	"github.com/pddstudio/vmrc/internal/selfupdate"
 	"github.com/pddstudio/vmrc/internal/service"
 	"github.com/urfave/cli/v3"
@@ -22,6 +24,7 @@ func updateCommand() *cli.Command {
 		Flags: []cli.Flag{
 			configFlag(),
 			serviceNameFlag(),
+			systemFlag(),
 			&cli.BoolFlag{Name: "check", Usage: "report the available version without installing"},
 			&cli.StringFlag{Name: "version", Usage: "install a specific release tag (allows reinstall/downgrade)"},
 			&cli.BoolFlag{Name: "force", Usage: "allow updating a dev build"},
@@ -33,6 +36,32 @@ func updateCommand() *cli.Command {
 }
 
 func updateAction(ctx context.Context, cmd *cli.Command) error {
+	exe, err := os.Executable()
+	if err != nil {
+		return fmt.Errorf("resolving own path: %w", err)
+	}
+
+	// One-time migration takes precedence and needs no network: if a legacy
+	// system install exists and user mode isn't set up yet, convert in place
+	// using THIS binary as the new managed binary.
+	sysCfg, _ := config.DefaultsFor(config.ModeSystem)
+	userCfg, _ := config.DefaultsFor(config.ModeUser)
+	legacyRoot := filepath.Dir(sysCfg.StateDir)
+	userRoot := filepath.Dir(userCfg.StateDir)
+	if shouldMigrate(legacyRoot, userRoot) {
+		if err := service.RequireElevated(); err != nil {
+			return err
+		}
+		if _, err := service.RelocateBinary(exe, userCfg.BinDir, binaryFileName()); err != nil {
+			return fmt.Errorf("placing binary in user bin: %w", err)
+		}
+		if err := RunMigration(cmd, legacyRoot, userRoot); err != nil {
+			return fmt.Errorf("migration: %w", err)
+		}
+		fmt.Println("migrated system install → user-session mode; node identity preserved")
+		return nil
+	}
+
 	t := selfupdate.Target{
 		Repo:       updateRepo,
 		BinaryName: serviceName, // "vmrc-agent" — also the goreleaser binary id
@@ -65,25 +94,20 @@ func updateAction(ctx context.Context, cmd *cli.Command) error {
 		return nil
 	}
 
-	exe, err := os.Executable()
-	if err != nil {
-		return fmt.Errorf("resolving own path: %w", err)
-	}
-
-	mgr, err := buildManager(cmd)
+	c, err := buildController(cmd, resolveMode(cmd))
 	if err != nil {
 		return err
 	}
 	// Status errors are tolerated: the service may not be installed, in which case
 	// we simply replace the binary and let the operator start it.
-	st, _ := mgr.Status()
+	st, _ := c.Status()
 	stopped := false
 	if st == "running" {
 		if err := service.RequireElevated(); err != nil {
 			return err
 		}
 		fmt.Printf("stopping service %q...\n", cmd.String("service-name"))
-		if err := mgr.Control("stop"); err != nil {
+		if err := c.Control("stop"); err != nil {
 			return fmt.Errorf("stopping service before update: %w", err)
 		}
 		stopped = true
@@ -94,7 +118,7 @@ func updateAction(ctx context.Context, cmd *cli.Command) error {
 		// Rollback-restart: if we stopped the service, bring the OLD binary back up
 		// so the agent is never left down on a failed update.
 		if stopped {
-			if serr := mgr.Control("start"); serr != nil {
+			if serr := c.Control("start"); serr != nil {
 				return fmt.Errorf("update failed (%v) and restarting the old binary also failed: %w", err, serr)
 			}
 			return fmt.Errorf("update failed; restarted the previous binary: %w", err)
@@ -104,10 +128,10 @@ func updateAction(ctx context.Context, cmd *cli.Command) error {
 
 	if stopped {
 		fmt.Printf("starting service %q with the new binary...\n", cmd.String("service-name"))
-		if err := mgr.Control("start"); err != nil {
+		if err := c.Control("start"); err != nil {
 			return fmt.Errorf("binary replaced but starting the service failed (start it manually): %w", err)
 		}
-		newSt, _ := mgr.Status()
+		newSt, _ := c.Status()
 		fmt.Printf("updated vmrc-agent to %s at %s; service %q: %s\n", rel.TagName, exe, cmd.String("service-name"), newSt)
 		return nil
 	}

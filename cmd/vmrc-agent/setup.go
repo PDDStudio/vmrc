@@ -20,6 +20,7 @@ func setupCommand() *cli.Command {
 		Flags: []cli.Flag{
 			configFlag(),
 			serviceNameFlag(),
+			systemFlag(),
 			&cli.StringFlag{Name: "base-dir", Usage: "root for exec cwd, get/put and read", Sources: cli.EnvVars("VMRC_BASE_DIR")},
 			&cli.IntFlag{Name: "listen-port", Usage: "HTTP listen port", Sources: cli.EnvVars("VMRC_LISTEN_PORT")},
 			&cli.StringSliceFlag{Name: "read-glob", Usage: "allowlist glob for /read (repeatable)"},
@@ -62,13 +63,52 @@ func writeDefaultConfig(path string, cfg config.Config) error {
 	return os.WriteFile(path, b, 0o644)
 }
 
+// relocateRunningBinary copies the current executable (src) into binDir as the
+// canonical agent binary name and returns the managed path.
+func relocateRunningBinary(src, binDir string) (string, error) {
+	return service.RelocateBinary(src, binDir, binaryFileName())
+}
+
+// enrollIfNeeded brings the tsnet node up once to persist state, then closes it.
+// With an auth key it always (re-)enrolls; without one it enrolls only when no
+// state exists yet. TS_AUTHKEY is used here and never written to disk.
+func enrollIfNeeded(ctx context.Context, cfg config.Config) error {
+	stateExists := tunnel.HasState(cfg.StateDir)
+	if !needEnroll(stateExists, cfg.AuthKey) {
+		fmt.Printf("tailnet state already present in %s; skipping enroll\n", cfg.StateDir)
+		return nil
+	}
+	if cfg.AuthKey == "" && !stateExists {
+		return fmt.Errorf("no tailnet state and no TS_AUTHKEY set; export TS_AUTHKEY=<tailscale auth key> and re-run")
+	}
+	fmt.Println("enrolling on the tailnet...")
+	tun, err := tunnel.Up(ctx, tunnel.Config{
+		Hostname: cfg.Hostname,
+		AuthKey:  cfg.AuthKey,
+		StateDir: cfg.StateDir,
+		Port:     cfg.ListenPort,
+	})
+	if err != nil {
+		return fmt.Errorf("enroll: %w", err)
+	}
+	fmt.Printf("enrolled as %s (reachable at %s://%s:%d once the agent is up)\n",
+		tun.FQDN(), tun.Scheme(), tun.FQDN(), cfg.ListenPort)
+	if cerr := tun.Close(); cerr != nil {
+		fmt.Fprintf(os.Stderr, "warning: closing enroll tunnel: %v\n", cerr)
+	}
+	return nil
+}
+
 func setupAction(ctx context.Context, cmd *cli.Command) error {
-	// 0. Privilege gate — installing a system service needs elevation.
+	mode := resolveMode(cmd)
+
+	// Elevation: system mode always; user mode needs it to register a
+	// highest-privileges logon task. Either way setup installs an autostart unit.
 	if err := service.RequireElevated(); err != nil {
 		return err
 	}
 
-	cfg, err := resolveConfig(cmd)
+	cfg, err := resolveConfigForMode(cmd, mode)
 	if err != nil {
 		return err
 	}
@@ -76,8 +116,10 @@ func setupAction(ctx context.Context, cmd *cli.Command) error {
 		return err
 	}
 
-	// 1. Ensure config file (don't clobber an existing one).
-	cfgPath := configPath(cmd)
+	cfgPath, err := configPathForMode(cmd, mode)
+	if err != nil {
+		return err
+	}
 	if shouldWriteConfig(cfgPath) {
 		if err := writeDefaultConfig(cfgPath, cfg); err != nil {
 			return fmt.Errorf("writing config: %w", err)
@@ -87,61 +129,46 @@ func setupAction(ctx context.Context, cmd *cli.Command) error {
 		fmt.Printf("config %s already exists; leaving it untouched\n", cfgPath)
 	}
 
-	// 2. Create required directories.
 	if err := config.EnsureDirs(cfg); err != nil {
 		return err
 	}
-	fmt.Printf("ensured dirs: state=%s base=%s\n", cfg.StateDir, cfg.BaseDir)
-
-	// 3. Enroll on the tailnet (transient: bring the node up to persist state,
-	//    then close). TS_AUTHKEY is used here and never written to disk.
-	stateExists := tunnel.HasState(cfg.StateDir)
-	if needEnroll(stateExists, cfg.AuthKey) {
-		if cfg.AuthKey == "" && !stateExists {
-			return fmt.Errorf("no tailnet state and no TS_AUTHKEY set; export TS_AUTHKEY=<tailscale auth key> and re-run")
-		}
-		fmt.Println("enrolling on the tailnet...")
-		tun, err := tunnel.Up(ctx, tunnel.Config{
-			Hostname: cfg.Hostname,
-			AuthKey:  cfg.AuthKey,
-			StateDir: cfg.StateDir,
-			Port:     cfg.ListenPort,
-		})
-		if err != nil {
-			return fmt.Errorf("enroll: %w", err)
-		}
-		fmt.Printf("enrolled as %s (reachable at %s://%s:%d once the service is up)\n",
-			tun.FQDN(), tun.Scheme(), tun.FQDN(), cfg.ListenPort)
-		if cerr := tun.Close(); cerr != nil {
-			fmt.Fprintf(os.Stderr, "warning: closing enroll tunnel: %v\n", cerr)
-		}
-	} else {
-		fmt.Printf("tailnet state already present in %s; skipping enroll\n", cfg.StateDir)
+	if err := os.MkdirAll(cfg.BinDir, 0o755); err != nil {
+		return fmt.Errorf("create bin dir: %w", err)
 	}
+	fmt.Printf("ensured dirs: state=%s base=%s bin=%s\n", cfg.StateDir, cfg.BaseDir, cfg.BinDir)
 
-	// 4. Install the boot service (idempotent: tolerate an existing install).
-	mgr, err := buildManager(cmd)
+	self, err := os.Executable()
 	if err != nil {
 		return err
 	}
-	if err := mgr.Control("install"); err != nil {
-		// Only swallow the error if Status confirms the service already exists;
-		// otherwise it is a real install failure.
-		if st, serr := mgr.Status(); serr == nil {
-			fmt.Printf("service %q already installed (%s); skipping install\n", cmd.String("service-name"), st)
-		} else {
-			return fmt.Errorf("installing service: %w", err)
-		}
-	} else {
-		fmt.Printf("installed service %q\n", cmd.String("service-name"))
+	managed, err := relocateRunningBinary(self, cfg.BinDir)
+	if err != nil {
+		return fmt.Errorf("relocating binary: %w", err)
+	}
+	fmt.Printf("installed binary at %s\n", managed)
+
+	if err := enrollIfNeeded(ctx, cfg); err != nil {
+		return err
 	}
 
-	// 5. Start it (idempotent: skip if already running).
-	if st, _ := mgr.Status(); st == "running" {
-		fmt.Printf("service %q already running\n", cmd.String("service-name"))
-	} else if err := mgr.Control("start"); err != nil {
-		return fmt.Errorf("starting service: %w", err)
+	c, err := buildController(cmd, mode)
+	if err != nil {
+		return err
 	}
-	fmt.Println("setup complete; the agent will rejoin the tailnet automatically on every boot.")
+	if err := c.Control("install"); err != nil {
+		if st, serr := c.Status(); serr == nil {
+			fmt.Printf("autostart unit already present (%s); leaving it\n", st)
+		} else {
+			return fmt.Errorf("installing autostart unit: %w", err)
+		}
+	} else {
+		fmt.Println("installed autostart unit")
+	}
+	if st, _ := c.Status(); st != "running" {
+		if err := c.Control("start"); err != nil {
+			return fmt.Errorf("starting autostart unit: %w", err)
+		}
+	}
+	fmt.Println("setup complete.")
 	return nil
 }

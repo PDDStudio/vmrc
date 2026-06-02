@@ -22,10 +22,18 @@ Either download a release `vmrc-agent.exe` or build it
 $env:TS_AUTHKEY = "tskey-..."
 .\vmrc-agent.exe setup
 ```
-This writes `C:\ProgramData\vmrc\agent.json`, enrolls the node, and installs +
-starts the boot service. Confirm it's up:
+`setup` defaults to **user-session mode**: it copies the binary into
+`%LOCALAPPDATA%\vmrc\bin`, writes `%LOCALAPPDATA%\vmrc\agent.json`, enrolls the
+node, and registers a **logon Scheduled Task** that runs the agent in your desktop
+session (with highest privileges, so `exec` is elevated). Confirm it's up:
 ```powershell
 .\vmrc-agent.exe status
+```
+
+To install the legacy LocalSystem boot service instead (no desktop capture; runs
+before login), pass `--system`:
+```powershell
+.\vmrc-agent.exe setup --system   # writes C:\ProgramData\vmrc, registers a boot service
 ```
 
 ## 3. Drive it from the host
@@ -37,31 +45,46 @@ vmrc put ./hello.txt <vm>:hello.txt     # upload into the agent base dir
 vmrc get <vm>:hello.txt ./hello.out     # round-trip download
 ```
 
-## 4. Verify user-session screenshots (the new capture path)
+## 4. Verify user-session screenshots + elevated exec
 
-With a user logged in at the VM console:
+In user mode the agent runs **inside your desktop session**, so capture is a
+direct grab (no session-0 bridge). With the agent running and the session
+unlocked:
 ```sh
 vmrc shot <vm> -o shot.png
 ```
-Open `shot.png` — it must show the **logged-in user's actual desktop**, not a
-black/empty session-0 frame. This confirms the service bridged into the active
-session. If the VM has multiple monitors or a very high resolution, confirm the
-capture streams back fully (the PNG is read over a pipe before the helper is
-reaped) and is not truncated.
-
-Now lock the screen / sign the user out so no console session is active, and
-retry:
+Open `shot.png` — it must show your **actual desktop**. Confirm `exec` runs
+elevated without a UAC prompt (the logon task has highest privileges):
 ```sh
-vmrc shot <vm> -o shot2.png
+vmrc exec <vm> -- whoami /groups        # should list the elevated/admin group as enabled
 ```
-Expected: an error with HTTP **409 "no interactive session"** (not a 500 and not
-a blank image). `vmrc exec <vm> -- whoami` still works.
+If the VM has multiple monitors or a very high resolution, confirm the capture
+isn't truncated.
 
-## 5. Reboot persistence
+(`--system`-mode agents run in session 0 and cannot capture the desktop; that's
+the deferred path.)
 
-Reboot the VM. Without logging in again to re-run anything, confirm from the
-host that `vmrc ls` shows the VM and `vmrc exec <vm> -- whoami` works — the agent
-rejoined the tailnet on boot. After a user logs in, `vmrc shot` works again.
+## 5. Logon persistence
+
+Reboot the VM and log the user back in (user-mode agents start at **logon**, not
+boot). Without re-running anything, confirm from the host that `vmrc ls` shows the
+VM and `vmrc shot`/`vmrc exec` work — the logon task relaunched the agent, which
+rejoined the tailnet from its saved `state/`. For unattended/headless VMs, enable
+**auto-logon** so the desktop session (and the agent) come up with no human.
+
+## 6. Migration from a legacy `--system` install (one-time)
+
+If the VM already has an older LocalSystem install (service registered,
+`C:\ProgramData\vmrc`), deliver the new binary and run:
+```powershell
+.\vmrc-agent.exe update
+```
+Run it via `vmrc exec` (a child process), **not** as the service body, so the
+migrator survives stopping the service. Expected result: the LocalSystem service
+is gone, a **logon task** now runs the agent from `%LOCALAPPDATA%\vmrc\bin`, and
+`vmrc ls` shows the **same node** (identity preserved via the copied `state/` — no
+re-enroll). Re-running `update` is a no-op (idempotent). While the repo is private,
+the release isn't fetchable, so migration runs locally off the delivered binary.
 
 ## Troubleshooting
 
@@ -70,12 +93,11 @@ rejoined the tailnet on boot. After a user logs in, `vmrc shot` works again.
   to reach port `47800`.
 - **403 forbidden:** your identity isn't allowlisted and no valid token was sent
   — set `allowed_logins`/`allowed_tags`, or pass `--token` / `VMRC_TOKEN`.
-- **Screenshot 409 with a user present:** confirm a user is actually logged in at
-  the *console* (not just an RDP session that has since disconnected).
-- **Screenshot 500 (not 409) on capture:** the bridge spawns the capture helper
-  via the logged-in user's token, which requires the service to run as
-  **LocalSystem** (the default install). If you run the agent under a non-SYSTEM
-  account, acquiring the user token fails — reinstall via `setup` so the service
-  runs as LocalSystem.
-- **State/permissions:** tailnet identity lives in `C:\ProgramData\vmrc\state`;
-  it must be readable by LocalSystem (the default path is).
+- **Screenshot fails / blank (user mode):** confirm the session is **unlocked** —
+  a locked workstation shows the secure desktop, which can't be captured. Confirm
+  the logon task is actually running (`.\vmrc-agent.exe status`).
+- **Screenshot can't work at all:** you likely installed with `--system` (the agent
+  runs in session 0 and can't see the desktop). Use the default user mode instead.
+- **State/permissions (user mode):** the working dir is `%LOCALAPPDATA%\vmrc`,
+  owned by the logged-in user — no special ACLs needed. (`--system` mode uses
+  `C:\ProgramData\vmrc`, readable by LocalSystem.)
