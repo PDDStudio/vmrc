@@ -34,6 +34,10 @@ func execAction(ctx context.Context, cmd *cli.Command) error {
 		if len(args) == 0 {
 			return cli.Exit("usage: vmrc exec --all -- <cmd...>", 2)
 		}
+		// Note: with --all there is no positional target; the urfave/cli parser
+		// strips the "--" separator, so a stray positional (vmrc exec --all foo
+		// -- cmd) would be folded into the command line. Documented limitation at
+		// P4 scope.
 		all, err := d.List(ctx, tag)
 		if err != nil {
 			return err
@@ -63,7 +67,7 @@ func execAction(ctx context.Context, cmd *cli.Command) error {
 
 	results := host.FanoutExec(ctx, agents, func(a host.Agent) *host.Client { return clientFor(cmd, a) }, cmdline)
 	out, code := host.FormatExec(results, len(agents) > 1)
-	fmt.Print(out)
+	fmt.Fprint(os.Stdout, out)
 	if len(agents) > 1 {
 		fmt.Fprint(os.Stderr, host.SummarizeExec(results))
 	}

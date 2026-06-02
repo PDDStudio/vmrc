@@ -21,6 +21,8 @@ type ExecResult struct {
 func FanoutExec(ctx context.Context, agents []Agent, mkClient func(Agent) *Client, cmdline string) []ExecResult {
 	results := make([]ExecResult, len(agents))
 	var wg sync.WaitGroup
+	// One goroutine per agent, unbounded. Fine for practical fleet sizes; a
+	// worker cap can be added if very large tailnets ever need it.
 	for i, a := range agents {
 		wg.Add(1)
 		go func(i int, a Agent) {
