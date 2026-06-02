@@ -50,12 +50,38 @@ func configPath(cmd *cli.Command) string {
 	return config.DefaultConfigPath()
 }
 
+// configPathForMode returns the explicit --config value if set, otherwise the
+// default config path for the given mode.
+func configPathForMode(cmd *cli.Command, mode config.Mode) (string, error) {
+	if p := cmd.String("config"); p != "" {
+		return p, nil
+	}
+	return config.ConfigPathFor(mode)
+}
+
 // resolveConfig applies precedence flag → env → JSON file → default and reads
 // the env-only secrets. Used by both run and setup.
 func resolveConfig(cmd *cli.Command) (config.Config, error) {
-	explicit := cmd.IsSet("config")
-	path := configPath(cmd)
-	cfg := config.Defaults()
+	return resolveConfigFrom(cmd, config.Defaults(), configPath(cmd), cmd.IsSet("config"))
+}
+
+// resolveConfigForMode is resolveConfig with mode-derived defaults (used by setup
+// and the management commands).
+func resolveConfigForMode(cmd *cli.Command, mode config.Mode) (config.Config, error) {
+	base, err := config.DefaultsFor(mode)
+	if err != nil {
+		return config.Config{}, err
+	}
+	path, err := configPathForMode(cmd, mode)
+	if err != nil {
+		return config.Config{}, err
+	}
+	return resolveConfigFrom(cmd, base, path, cmd.IsSet("config"))
+}
+
+// resolveConfigFrom applies precedence flag → env → JSON file → the given base
+// defaults, reads env-only secrets, and validates.
+func resolveConfigFrom(cmd *cli.Command, cfg config.Config, path string, explicit bool) (config.Config, error) {
 	// Overlay the JSON file when present. A missing DEFAULT path is fine
 	// (flags/env may supply everything), but a user-named --config that can't
 	// be read, or any non-"not found" stat error (e.g. permission denied), is a
