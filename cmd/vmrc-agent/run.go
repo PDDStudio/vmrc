@@ -97,6 +97,14 @@ func resolveConfig(cmd *cli.Command) (config.Config, error) {
 	}
 	// authkey is a secret: env only, never a flag or JSON key.
 	cfg.AuthKey = os.Getenv("TS_AUTHKEY")
+
+	warns, err := config.Validate(cfg)
+	if err != nil {
+		return cfg, err
+	}
+	for _, w := range warns {
+		log.Printf("WARNING: %s", w)
+	}
 	return cfg, nil
 }
 
