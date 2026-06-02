@@ -45,6 +45,7 @@ func main() {
 			startCommand(),
 			stopCommand(),
 			statusCommand(),
+			captureHelperCommand(),
 		},
 	}
 	if err := cmd.Run(ctx, os.Args); err != nil {
