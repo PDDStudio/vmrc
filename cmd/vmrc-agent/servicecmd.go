@@ -81,7 +81,10 @@ func buildController(cmd *cli.Command, mode config.Mode) (controller, error) {
 	if err != nil {
 		return nil, err
 	}
-	absCfg, _ := filepath.Abs(cfgPath)
+	absCfg, err := filepath.Abs(cfgPath)
+	if err != nil {
+		return nil, fmt.Errorf("resolving config path %q: %w", cfgPath, err)
+	}
 	exe := filepath.Join(cfg.BinDir, binaryFileName())
 	user, err := currentUserName()
 	if err != nil {
@@ -100,11 +103,11 @@ func buildController(cmd *cli.Command, mode config.Mode) (controller, error) {
 	return launcherController{l}, nil
 }
 
-// preflightInstall checks elevation and absolute paths, and warns if no tsnet
-// state exists yet (the enroll-before-install reminder). cfg is the resolved
-// config.
-func preflightInstall(cfg config.Config) error {
-	if err := service.RequireElevated(); err != nil {
+// preflightInstall checks elevation (per mode) and absolute paths, and warns if
+// no tsnet state exists yet (the enroll-before-install reminder). cfg is the
+// resolved config.
+func preflightInstall(mode config.Mode, cfg config.Config) error {
+	if err := requireElevatedFor(mode, "install"); err != nil {
 		return err
 	}
 	if err := config.RequireAbsPaths(cfg); err != nil {
@@ -128,15 +131,8 @@ func installCommand() *cli.Command {
 			if err != nil {
 				return err
 			}
-			if err := requireElevatedFor(mode, "install"); err != nil {
+			if err := preflightInstall(mode, cfg); err != nil {
 				return err
-			}
-			if err := config.RequireAbsPaths(cfg); err != nil {
-				return err
-			}
-			if !tunnel.HasState(cfg.StateDir) {
-				fmt.Fprintf(os.Stderr, "warning: no tailnet state in %q yet; the service cannot enroll at boot without it.\n"+
-					"  Run `vmrc-agent setup` (recommended) or `vmrc-agent run` once with TS_AUTHKEY set before relying on boot-start.\n", cfg.StateDir)
 			}
 			c, err := buildController(cmd, mode)
 			if err != nil {
