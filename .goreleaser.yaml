@@ -64,8 +64,33 @@ checksum:
   algorithm: sha256
 
 changelog:
-  use: github
+  # use: git keeps the entry format "{{ .SHA }} {{ .Message }}" — short hash + subject,
+  # no author name/email (the github backend appends "(author <email>)"). abbrev shortens
+  # the hash; groups/filters tidy the list (conventional-commit prefixes).
+  use: git
   sort: asc
+  abbrev: 7
+  groups:
+    - title: Features
+      regexp: '^.*?feat(\([[:word:]]+\))??!?:.+$'
+      order: 0
+    - title: Bug fixes
+      regexp: '^.*?fix(\([[:word:]]+\))??!?:.+$'
+      order: 1
+    - title: Documentation
+      regexp: '^.*?docs(\([[:word:]]+\))??!?:.+$'
+      order: 2
+    - title: Other
+      order: 999
+  filters:
+    # Drop merge commits (they duplicate the underlying feat/fix/docs commits) and
+    # low-signal types, so the changelog reads as a clean per-change summary.
+    exclude:
+      - '^Merge '
+      - '^chore(\([[:word:]]+\))??!?:'
+      - '^ci(\([[:word:]]+\))??!?:'
+      - '^test(\([[:word:]]+\))??!?:'
+      - '^refactor(\([[:word:]]+\))??!?:'
 
 release:
   github:
