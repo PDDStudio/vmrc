@@ -81,6 +81,26 @@ func TestLoadFileBadJSON(t *testing.T) {
 	}
 }
 
+func TestConfigPathForUserMode(t *testing.T) {
+	p, err := ConfigPathFor(ModeUser)
+	if err != nil {
+		t.Fatalf("ConfigPathFor user: %v", err)
+	}
+	if filepath.Base(p) != "agent.json" || !filepath.IsAbs(p) {
+		t.Fatalf("unexpected user config path: %q", p)
+	}
+}
+
+func TestConfigPathForSystemMatchesDefault(t *testing.T) {
+	p, err := ConfigPathFor(ModeSystem)
+	if err != nil {
+		t.Fatalf("ConfigPathFor system: %v", err)
+	}
+	if p != DefaultConfigPath() {
+		t.Fatalf("system config path %q must equal DefaultConfigPath() %q", p, DefaultConfigPath())
+	}
+}
+
 func TestLoadFileIgnoresSecretKeys(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "vmrc.json")
