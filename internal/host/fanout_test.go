@@ -78,6 +78,20 @@ func TestFormatExecErrorSetsNonZero(t *testing.T) {
 	}
 }
 
+func TestSummarizeExec(t *testing.T) {
+	results := []ExecResult{
+		{Name: "vm1", ExitStatus: 0},
+		{Name: "vm2", ExitStatus: 7},
+		{Name: "vm3", Err: errors.New("dial fail")},
+	}
+	got := SummarizeExec(results)
+	for _, want := range []string{"vm1: exit 0\n", "vm2: exit 7\n", "vm3: error: dial fail\n"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("missing %q in summary:\n%s", want, got)
+		}
+	}
+}
+
 func TestFanoutExecRunsAllAndSorts(t *testing.T) {
 	agents := []Agent{{Name: "vm2"}, {Name: "vm1"}}
 	// mkClient returns a client whose Exec is stubbed via a test server-less path:

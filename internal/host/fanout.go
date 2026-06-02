@@ -61,6 +61,22 @@ func FormatExec(results []ExecResult, multi bool) (string, int) {
 	return b.String(), code
 }
 
+// SummarizeExec returns a one-line-per-agent summary of a fan-out exec result
+// set, intended for stderr when more than one target is addressed. Each line is
+// "name: exit N" for a completed command, or "name: error: ..." for a transport
+// failure.
+func SummarizeExec(results []ExecResult) string {
+	var b strings.Builder
+	for _, r := range results {
+		if r.Err != nil {
+			fmt.Fprintf(&b, "%s: error: %v\n", r.Name, r.Err)
+		} else {
+			fmt.Fprintf(&b, "%s: exit %d\n", r.Name, r.ExitStatus)
+		}
+	}
+	return b.String()
+}
+
 func writeLabeled(b *strings.Builder, name string, out []byte, multi bool) {
 	if !multi {
 		b.Write(out)

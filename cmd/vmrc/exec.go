@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/pddstudio/vmrc/internal/host"
@@ -63,6 +64,9 @@ func execAction(ctx context.Context, cmd *cli.Command) error {
 	results := host.FanoutExec(ctx, agents, func(a host.Agent) *host.Client { return clientFor(cmd, a) }, cmdline)
 	out, code := host.FormatExec(results, len(agents) > 1)
 	fmt.Print(out)
+	if len(agents) > 1 {
+		fmt.Fprint(os.Stderr, host.SummarizeExec(results))
+	}
 	if code != 0 {
 		return cli.Exit("", code)
 	}
