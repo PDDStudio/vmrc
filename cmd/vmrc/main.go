@@ -34,7 +34,10 @@ func main() {
 		},
 	}
 	// cli.Exit-wrapped errors carry an exit code and are handled by cli's default
-	// exiter; other errors abort with status 1.
+	// exiter; other errors abort with status 1. Drop log's timestamp prefix so
+	// CLI errors read cleanly (e.g. "vmrc: no agent named ...").
+	log.SetFlags(0)
+	log.SetPrefix("vmrc: ")
 	if err := cmd.Run(ctx, os.Args); err != nil {
 		log.Fatal(err)
 	}
