@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -280,5 +281,30 @@ func TestLogsAliasDeniesNonMatchingGlob(t *testing.T) {
 	s.Handler().ServeHTTP(rec, httptest.NewRequest("GET", "/logs/passwd?token=secret", nil))
 	if rec.Code == http.StatusOK {
 		t.Fatalf("/logs/ alias must also deny non-matching globs (code=%d)", rec.Code)
+	}
+}
+
+// errCapturer is a Capturer that always fails with err.
+type errCapturer struct{ err error }
+
+func (e errCapturer) Capture() ([]byte, error) { return nil, e.err }
+
+func TestScreenshotNoInteractiveSessionReturns409(t *testing.T) {
+	s := &Server{Token: "secret", Capturer: errCapturer{err: ErrNoInteractiveSession}}
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/screenshot?token=secret", nil)
+	s.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("got status %d, want 409", rec.Code)
+	}
+}
+
+func TestScreenshotOtherErrorReturns500(t *testing.T) {
+	s := &Server{Token: "secret", Capturer: errCapturer{err: errors.New("boom")}}
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/screenshot?token=secret", nil)
+	s.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("got status %d, want 500", rec.Code)
 	}
 }

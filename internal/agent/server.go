@@ -8,6 +8,7 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -23,6 +24,11 @@ import (
 
 // execTimeout bounds a single /exec command (packing/builds can be slow).
 const execTimeout = 10 * time.Minute
+
+// ErrNoInteractiveSession is returned by a Capturer when no user is logged into
+// the interactive (console) session, so the desktop cannot be captured. The
+// screenshot handler maps it to HTTP 409 rather than a generic 500.
+var ErrNoInteractiveSession = errors.New("no interactive session")
 
 // Capturer returns a PNG snapshot of the desktop. The real implementation is in
 // capture.go (platform build tags); tests inject a fake.
@@ -114,6 +120,10 @@ func (s *Server) handleScreenshot(w http.ResponseWriter, r *http.Request) {
 	png, err := s.Capturer.Capture()
 	if err != nil {
 		s.logf("screenshot ERROR: %v", err)
+		if errors.Is(err, ErrNoInteractiveSession) {
+			http.Error(w, err.Error(), http.StatusConflict)
+			return
+		}
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
