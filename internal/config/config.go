@@ -124,3 +124,20 @@ func RequireAbsPaths(cfg Config) error {
 	}
 	return nil
 }
+
+// Validate checks a resolved Config for hard errors and soft warnings. Hard
+// errors (relative paths, out-of-range port) are returned as err and should
+// abort startup. Soft issues (e.g. an empty read allowlist) are returned as
+// warnings the caller logs but need not fail on.
+func Validate(cfg Config) (warnings []string, err error) {
+	if err := RequireAbsPaths(cfg); err != nil {
+		return nil, err
+	}
+	if cfg.ListenPort < 1 || cfg.ListenPort > 65535 {
+		return nil, fmt.Errorf("listen_port must be in 1..65535, got %d", cfg.ListenPort)
+	}
+	if len(cfg.ReadGlobs) == 0 {
+		warnings = append(warnings, "read_globs is empty; the /read endpoint will serve no files")
+	}
+	return warnings, nil
+}

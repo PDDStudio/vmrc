@@ -73,7 +73,7 @@ type ChainAuthorizer struct {
 }
 
 func (c ChainAuthorizer) Authorize(r *http.Request) error {
-	var lastErr error = errors.New("no authorizers configured")
+	lastErr := errors.New("no authorizers configured")
 	for _, a := range c.Authorizers {
 		err := a.Authorize(r)
 		if err == nil {

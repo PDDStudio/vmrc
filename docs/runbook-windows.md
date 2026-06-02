@@ -46,6 +46,16 @@ primary verbs — `exec`, `spawn`, `get`, `put`, `read` — work fully. If you n
 real screenshots, run the agent in the user session instead (a user-session
 service mode is a future enhancement).
 
+### macOS screenshot capability
+
+Release `vmrc-agent` binaries are built `CGO_ENABLED=0`. On macOS the screen-capture
+backend needs cgo, so without it `screenshot.NumActiveDisplays()` reports `0` and
+`/screenshot` fails with HTTP 500 `no active displays`. To enable capture, build on a Mac
+with cgo (`go build ./cmd/vmrc-agent`), grant the binary (or its launching app)
+Screen-Recording permission in System Settings → Privacy & Security, and run the agent
+in a user session (a root LaunchDaemon cannot capture the screen). `exec`, `spawn`,
+`get`, `put`, and `read` work regardless.
+
 ## Uninstall / cleanup
 
 ```powershell

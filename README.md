@@ -79,6 +79,57 @@ With no allowlist, the agent falls back to shared-token auth (`VMRC_TOKEN`); wit
 neither, every request is denied. The `--local` dev listener has no tailnet identity,
 so it is always token-only.
 
+## Install / build
+
+**From a release:** download the archive for your OS/arch from the
+[Releases](https://github.com/pddstudio/vmrc/releases) page, verify it against
+`checksums.txt`, unpack, and place the binary on your `PATH`. For the agent,
+then follow the `setup` quick-start above.
+
+**From source:**
+
+```sh
+go build -o vmrc       ./cmd/vmrc          # host CLI
+go build -o vmrc-agent ./cmd/vmrc-agent    # VM agent
+vmrc --version                             # reports the build stamp
+```
+
+**All targets at once** (requires [GoReleaser](https://goreleaser.com)):
+
+```sh
+goreleaser build --snapshot --clean          # win/linux/darwin × amd64/arm64 → dist/
+goreleaser build --snapshot --single-target  # just your host
+```
+
+> **macOS screenshots:** release `vmrc-agent` binaries are built with `CGO_ENABLED=0`,
+> so on macOS `/screenshot` fails with HTTP 500 `no active displays` (`exec`/`get`/`put`/`read`
+> work normally). Screen capture on macOS needs a cgo build with the macOS SDK — build
+> `vmrc-agent` locally on a Mac (`go build ./cmd/vmrc-agent`) if you need it. Note that
+> macOS capture also requires Screen-Recording (TCC) permission and a user-session
+> service — see the runbook.
+
+## Agent configuration
+
+`vmrc-agent` reads config with precedence **flag → env → JSON file → default**.
+See [`vmrc.example.json`](./vmrc.example.json) for a template.
+
+| Key | Env override | Meaning |
+|---|---|---|
+| `hostname` | `VMRC_HOSTNAME` | tsnet node name on the tailnet |
+| `state_dir` | `VMRC_STATE_DIR` | tsnet state dir (must be absolute) |
+| `base_dir` | `VMRC_BASE_DIR` | root for `exec` cwd, `get`/`put`, `read` (must be absolute) |
+| `read_globs` | — | allowlist of readable path globs under `base_dir` |
+| `listen_port` | `VMRC_LISTEN_PORT` | HTTP listen port (default `47800`) |
+| `allowed_logins` | — | identity allowlist: Tailscale login names |
+| `allowed_tags` | — | identity allowlist: ACL tags, e.g. `tag:vmrc-admin` |
+
+**Secrets are env-only and never read from or written to the JSON file:**
+
+| Secret | Env var |
+|---|---|
+| tailnet auth key (enrollment) | `TS_AUTHKEY` |
+| shared-token fallback | `VMRC_TOKEN` |
+
 ## Why it exists
 
 It generalizes a proven internal control agent that let a human *and* an AI agent drive a

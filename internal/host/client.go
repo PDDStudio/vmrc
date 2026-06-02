@@ -61,7 +61,7 @@ func (c *Client) Exec(ctx context.Context, cmdline string) ([]byte, int, error) 
 	if err != nil {
 		return nil, -1, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode/100 != 2 {
 		return nil, -1, errFromResponse(resp)
 	}
@@ -86,7 +86,7 @@ func (c *Client) Screenshot(ctx context.Context) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode/100 != 2 {
 		return nil, errFromResponse(resp)
 	}
@@ -106,7 +106,7 @@ func (c *Client) Get(ctx context.Context, remotePath string) (io.ReadCloser, err
 		return nil, err
 	}
 	if resp.StatusCode/100 != 2 {
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 		return nil, errFromResponse(resp)
 	}
 	return resp.Body, nil
@@ -124,7 +124,7 @@ func (c *Client) Put(ctx context.Context, remotePath string, body io.Reader) err
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode/100 != 2 {
 		return errFromResponse(resp)
 	}

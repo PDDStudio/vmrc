@@ -6,6 +6,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"os"
 	"os/signal"
@@ -20,13 +21,22 @@ const (
 	serviceDescription = "vmrc VM remote-control agent"
 )
 
+// Build stamps, set via -ldflags at release time (see .goreleaser.yaml).
+// Plain `go build` leaves the defaults.
+var (
+	version = "dev"
+	commit  = "none"
+	date    = "unknown"
+)
+
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
 	cmd := &cli.Command{
-		Name:  "vmrc-agent",
-		Usage: "VM-side remote-control agent",
+		Name:    "vmrc-agent",
+		Usage:   "VM-side remote-control agent",
+		Version: fmt.Sprintf("%s (commit %s, built %s)", version, commit, date),
 		Commands: []*cli.Command{
 			runCommand(),
 			setupCommand(),

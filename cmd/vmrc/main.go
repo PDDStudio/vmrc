@@ -17,14 +17,23 @@ import (
 	"tailscale.com/client/local"
 )
 
+// Build stamps, set via -ldflags at release time (see .goreleaser.yaml).
+// Plain `go build` leaves the defaults.
+var (
+	version = "dev"
+	commit  = "none"
+	date    = "unknown"
+)
+
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
 	cmd := &cli.Command{
-		Name:  "vmrc",
-		Usage: "drive a fleet of vmrc agents over the tailnet",
-		Flags: globalFlags(),
+		Name:    "vmrc",
+		Usage:   "drive a fleet of vmrc agents over the tailnet",
+		Version: fmt.Sprintf("%s (commit %s, built %s)", version, commit, date),
+		Flags:   globalFlags(),
 		Commands: []*cli.Command{
 			lsCommand(),
 			execCommand(),

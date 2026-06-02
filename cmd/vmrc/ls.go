@@ -26,9 +26,9 @@ func lsAction(ctx context.Context, cmd *cli.Command) error {
 		fmt.Fprintln(os.Stderr, "no vmrc agents found")
 	}
 	tw := tabwriter.NewWriter(os.Stdout, 0, 2, 2, ' ', 0)
-	fmt.Fprintln(tw, "NAME\tDNSNAME\tOS\tONLINE")
+	_, _ = fmt.Fprintln(tw, "NAME\tDNSNAME\tOS\tONLINE")
 	for _, a := range agents {
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%t\n", a.Name, a.DNSName, a.OS, a.Online)
+		_, _ = fmt.Fprintf(tw, "%s\t%s\t%s\t%t\n", a.Name, a.DNSName, a.OS, a.Online)
 	}
 	return tw.Flush()
 }
