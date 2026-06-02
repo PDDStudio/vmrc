@@ -1,6 +1,7 @@
 package config
 
 import (
+	"path/filepath"
 	"runtime"
 	"testing"
 )
@@ -34,5 +35,28 @@ func TestUserPathsUnix(t *testing.T) {
 	}
 	if got != want {
 		t.Fatalf("userPaths unix:\n got=%+v\nwant=%+v", got, want)
+	}
+}
+
+func TestDefaultsForUserModeIsAbsolute(t *testing.T) {
+	cfg, err := DefaultsFor(ModeUser)
+	if err != nil {
+		t.Fatalf("DefaultsFor user: %v", err)
+	}
+	for _, p := range []string{cfg.StateDir, cfg.BaseDir, cfg.BinDir} {
+		if p == "" || !filepath.IsAbs(p) {
+			t.Fatalf("user-mode path not absolute: %q", p)
+		}
+	}
+}
+
+func TestDefaultsForSystemMatchesLegacy(t *testing.T) {
+	cfg, err := DefaultsFor(ModeSystem)
+	if err != nil {
+		t.Fatalf("DefaultsFor system: %v", err)
+	}
+	legacy := Defaults()
+	if cfg.StateDir != legacy.StateDir || cfg.BaseDir != legacy.BaseDir {
+		t.Fatalf("system mode must match legacy defaults: %+v vs %+v", cfg, legacy)
 	}
 }
