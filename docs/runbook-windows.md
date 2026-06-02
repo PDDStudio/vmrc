@@ -38,13 +38,18 @@ must be readable by LocalSystem — `C:\ProgramData` is by default. If you enrol
 with `run` under a different account, make sure the state dir is one LocalSystem
 can read (the default path is).
 
-## Screenshot caveat (session 0)
+## Screenshots (user-session capture)
 
-A Windows service runs in **session 0**, which has no interactive desktop, so
-`/screenshot` cannot capture the logged-in user's screen from the service. The
-primary verbs — `exec`, `spawn`, `get`, `put`, `read` — work fully. If you need
-real screenshots, run the agent in the user session instead (a user-session
-service mode is a future enhancement).
+A Windows service runs in **session 0**, which has no interactive desktop. The
+agent handles this automatically: when a screenshot is requested, the service
+spawns a short-lived helper into the **active console session** (as the
+logged-in user) that captures the desktop and streams it back. No extra setup
+is required.
+
+Requirement: a user must be logged in at the console. If no one is logged in
+(e.g. the lock screen with no active session), `/screenshot` returns HTTP 409
+`no interactive session` instead of an image. `exec`, `spawn`, `get`, `put`, and
+`read` work regardless of login state.
 
 ### macOS screenshot capability
 
