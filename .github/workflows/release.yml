@@ -31,14 +31,19 @@ jobs:
             echo "::error::tag v$v already exists"
             exit 1
           fi
+          # Export the validated value so later steps read it from the shell env
+          # rather than re-interpolating the raw ${{ inputs.version }} expression.
+          echo "RELEASE_VERSION=$v" >> "$GITHUB_ENV"
 
       - name: Create and push tag
+        # If goreleaser later fails, the tag remains pushed; the validate step's
+        # "tag already exists" guard will then block a same-version retry — delete
+        # the tag (locally and on origin) and re-run, or bump the version.
         run: |
-          v='${{ inputs.version }}'
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git tag -a "v$v" -m "Release v$v"
-          git push origin "v$v"
+          git tag -a "v$RELEASE_VERSION" -m "Release v$RELEASE_VERSION"
+          git push origin "v$RELEASE_VERSION"
 
       - uses: actions/setup-go@v6
         with:
