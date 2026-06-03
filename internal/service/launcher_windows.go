@@ -43,6 +43,7 @@ func (l winLauncher) Install() error {
 	_, err = runSchtasks("/Create", "/TN", l.spec.Name, "/XML", tmp, "/RU", l.spec.User, "/F")
 	return err
 }
+
 func (l winLauncher) Uninstall() error { _, err := runSchtasks(schtasksDeleteArgs(l.spec.Name)...); return err }
 func (l winLauncher) Start() error     { _, err := runSchtasks(schtasksRunArgs(l.spec.Name)...); return err }
 func (l winLauncher) Stop() error      { _, err := runSchtasks(schtasksEndArgs(l.spec.Name)...); return err }
