@@ -13,6 +13,12 @@ import (
 	"syscall"
 
 	"github.com/urfave/cli/v3"
+
+	// Blank import to link the Windows application manifest (.syso resources in
+	// the winres package). The manifest declares supportedOS compatibility so
+	// tsnet's wingoes dependency does not panic on an "incoherent" OS version at
+	// startup; see package winres. No-op on non-Windows builds.
+	_ "github.com/pddstudio/vmrc/cmd/vmrc-agent/winres"
 )
 
 const (
