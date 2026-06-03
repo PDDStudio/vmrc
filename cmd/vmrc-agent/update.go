@@ -5,9 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
 
-	"github.com/pddstudio/vmrc/internal/config"
 	"github.com/pddstudio/vmrc/internal/selfupdate"
 	"github.com/pddstudio/vmrc/internal/service"
 	"github.com/urfave/cli/v3"
@@ -39,27 +37,6 @@ func updateAction(ctx context.Context, cmd *cli.Command) error {
 	exe, err := os.Executable()
 	if err != nil {
 		return fmt.Errorf("resolving own path: %w", err)
-	}
-
-	// One-time migration takes precedence and needs no network: if a legacy
-	// system install exists and user mode isn't set up yet, convert in place
-	// using THIS binary as the new managed binary.
-	sysCfg, _ := config.DefaultsFor(config.ModeSystem)
-	userCfg, _ := config.DefaultsFor(config.ModeUser)
-	legacyRoot := filepath.Dir(sysCfg.StateDir)
-	userRoot := filepath.Dir(userCfg.StateDir)
-	if shouldMigrate(legacyRoot, userRoot) {
-		if err := service.RequireElevated(); err != nil {
-			return err
-		}
-		if _, err := service.RelocateBinary(exe, userCfg.BinDir, binaryFileName()); err != nil {
-			return fmt.Errorf("placing binary in user bin: %w", err)
-		}
-		if err := RunMigration(cmd, legacyRoot, userRoot); err != nil {
-			return fmt.Errorf("migration: %w", err)
-		}
-		fmt.Println("migrated system install → user-session mode; node identity preserved")
-		return nil
 	}
 
 	t := selfupdate.Target{

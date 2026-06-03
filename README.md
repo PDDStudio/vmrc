@@ -215,7 +215,7 @@ See [`vmrc.example.json`](./vmrc.example.json) for a template.
 
 | Key | Env override | Meaning |
 |---|---|---|
-| `hostname` | `VMRC_HOSTNAME` | tsnet node name on the tailnet |
+| `hostname` | `VMRC_HOSTNAME` | tsnet node name on the tailnet; if empty/omitted, defaults to a DNS-sanitized form of the machine's OS hostname (falling back to `vmrc-agent`) |
 | `state_dir` | `VMRC_STATE_DIR` | tsnet state dir (must be absolute) |
 | `base_dir` | `VMRC_BASE_DIR` | root for `exec` cwd, `get`/`put`, `read` (must be absolute) |
 | `read_globs` | — | allowlist of readable path globs under `base_dir` |

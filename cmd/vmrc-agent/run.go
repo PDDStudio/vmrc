@@ -128,6 +128,15 @@ func resolveConfigFrom(cmd *cli.Command, cfg config.Config, path string, explici
 	// github token is optional and env-only; it only raises the self-update API rate limit.
 	cfg.GitHubToken = os.Getenv("GITHUB_TOKEN")
 
+	// Pin the tsnet node name when unset: derive a stable, DNS-valid name from the
+	// OS hostname so the node name, MagicDNS name, and cert agree. Without this,
+	// tsnet falls back to the binary basename (e.g. "vmrc-agent.exe"), whose
+	// ".exe" is not a valid DNS label. An explicit --hostname / VMRC_HOSTNAME, or a
+	// hostname already in the config file, takes precedence.
+	if cfg.Hostname == "" {
+		cfg.Hostname = config.DefaultHostname()
+	}
+
 	warns, err := config.Validate(cfg)
 	if err != nil {
 		return cfg, err
