@@ -18,6 +18,7 @@ func TestSanitizeHostname(t *testing.T) {
 		{"underscore and space become dash", "my_host name", "my-host-name"},
 		{"leading/trailing junk trimmed", "--weird!!", "weird"},
 		{"truncated to 63", strings.Repeat("a", 80), strings.Repeat("a", 63)},
+		{"re-trims dash left at truncation boundary", strings.Repeat("a", 62) + "-" + strings.Repeat("a", 5), strings.Repeat("a", 62)},
 		{"empty falls back", "", "vmrc-agent"},
 		{"only junk falls back", "!!!", "vmrc-agent"},
 		{"only dots falls back", "...", "vmrc-agent"},
