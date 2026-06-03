@@ -12,7 +12,9 @@ import (
 func schtasksRunArgs(name string) []string    { return []string{"/Run", "/TN", name} }
 func schtasksEndArgs(name string) []string    { return []string{"/End", "/TN", name} }
 func schtasksDeleteArgs(name string) []string { return []string{"/Delete", "/TN", name, "/F"} }
-func schtasksQueryArgs(name string) []string  { return []string{"/Query", "/TN", name, "/FO", "LIST", "/V"} }
+func schtasksQueryArgs(name string) []string {
+	return []string{"/Query", "/TN", name, "/FO", "LIST", "/V"}
+}
 
 func runSchtasks(args ...string) (string, error) {
 	out, err := exec.Command("schtasks.exe", args...).CombinedOutput()
@@ -44,9 +46,15 @@ func (l winLauncher) Install() error {
 	return err
 }
 
-func (l winLauncher) Uninstall() error { _, err := runSchtasks(schtasksDeleteArgs(l.spec.Name)...); return err }
-func (l winLauncher) Start() error     { _, err := runSchtasks(schtasksRunArgs(l.spec.Name)...); return err }
-func (l winLauncher) Stop() error      { _, err := runSchtasks(schtasksEndArgs(l.spec.Name)...); return err }
+func (l winLauncher) Uninstall() error {
+	_, err := runSchtasks(schtasksDeleteArgs(l.spec.Name)...)
+	return err
+}
+func (l winLauncher) Start() error {
+	_, err := runSchtasks(schtasksRunArgs(l.spec.Name)...)
+	return err
+}
+func (l winLauncher) Stop() error { _, err := runSchtasks(schtasksEndArgs(l.spec.Name)...); return err }
 
 func (l winLauncher) Status() (string, error) {
 	out, err := runSchtasks(schtasksQueryArgs(l.spec.Name)...)
