@@ -4,44 +4,16 @@ package service
 
 import (
 	"fmt"
+	"os"
 	"os/exec"
 	"strings"
 )
 
-func schtasksCreateArgs(s LaunchSpec) []string {
-	// Build the /TR command string with literal double-quotes around the exe and
-	// each arg. We must NOT use %q here: %q produces a Go string literal, which
-	// doubles backslashes and would corrupt Windows paths (C:\...\x.exe).
-	// Per-arg quoting also keeps paths with spaces (e.g. a username with a space
-	// in %LOCALAPPDATA%) intact.
-	quoted := make([]string, 0, len(s.Args)+1)
-	quoted = append(quoted, `"`+s.Executable+`"`)
-	for _, a := range s.Args {
-		quoted = append(quoted, `"`+a+`"`)
-	}
-	tr := strings.Join(quoted, " ")
-	args := []string{
-		"/Create", "/TN", s.Name, "/TR", tr,
-		"/SC", "ONLOGON", "/RU", s.User, "/IT", "/F",
-	}
-	if s.Elevated {
-		args = append(args, "/RL", "HIGHEST")
-	}
-	return args
-}
-
 func schtasksRunArgs(name string) []string    { return []string{"/Run", "/TN", name} }
 func schtasksEndArgs(name string) []string    { return []string{"/End", "/TN", name} }
 func schtasksDeleteArgs(name string) []string { return []string{"/Delete", "/TN", name, "/F"} }
-func schtasksQueryArgs(name string) []string  { return []string{"/Query", "/TN", name, "/FO", "LIST", "/V"} }
-
-func argValue(args []string, flag string) string {
-	for i, a := range args {
-		if a == flag && i+1 < len(args) {
-			return args[i+1]
-		}
-	}
-	return ""
+func schtasksQueryArgs(name string) []string {
+	return []string{"/Query", "/TN", name, "/FO", "LIST", "/V"}
 }
 
 func runSchtasks(args ...string) (string, error) {
@@ -54,10 +26,35 @@ func runSchtasks(args ...string) (string, error) {
 
 type winLauncher struct{ spec LaunchSpec }
 
-func (l winLauncher) Install() error   { _, err := runSchtasks(schtasksCreateArgs(l.spec)...); return err }
-func (l winLauncher) Uninstall() error { _, err := runSchtasks(schtasksDeleteArgs(l.spec.Name)...); return err }
-func (l winLauncher) Start() error     { _, err := runSchtasks(schtasksRunArgs(l.spec.Name)...); return err }
-func (l winLauncher) Stop() error      { _, err := runSchtasks(schtasksEndArgs(l.spec.Name)...); return err }
+func (l winLauncher) Install() error {
+	f, err := os.CreateTemp("", "vmrc-task-*.xml")
+	if err != nil {
+		return fmt.Errorf("creating task xml temp file: %w", err)
+	}
+	tmp := f.Name()
+	defer os.Remove(tmp)
+	if _, err := f.Write(utf16LEBOM(taskXML(l.spec))); err != nil {
+		f.Close()
+		return fmt.Errorf("writing task xml: %w", err)
+	}
+	if err := f.Close(); err != nil {
+		return fmt.Errorf("closing task xml: %w", err)
+	}
+	// /RU binds the principal so a HighestAvailable/InteractiveToken task created
+	// from XML does not prompt for credentials.
+	_, err = runSchtasks("/Create", "/TN", l.spec.Name, "/XML", tmp, "/RU", l.spec.User, "/F")
+	return err
+}
+
+func (l winLauncher) Uninstall() error {
+	_, err := runSchtasks(schtasksDeleteArgs(l.spec.Name)...)
+	return err
+}
+func (l winLauncher) Start() error {
+	_, err := runSchtasks(schtasksRunArgs(l.spec.Name)...)
+	return err
+}
+func (l winLauncher) Stop() error { _, err := runSchtasks(schtasksEndArgs(l.spec.Name)...); return err }
 
 func (l winLauncher) Status() (string, error) {
 	out, err := runSchtasks(schtasksQueryArgs(l.spec.Name)...)
