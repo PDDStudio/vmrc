@@ -148,6 +148,11 @@ func resolveConfigFrom(cmd *cli.Command, cfg config.Config, path string, explici
 }
 
 func runAction(ctx context.Context, cmd *cli.Command) error {
+	// Windows: hide the console window when we were launched by the logon
+	// Scheduled Task (sole owner of a fresh console). No-op elsewhere and when
+	// run from a terminal. Done first to minimize the one-time logon flash.
+	hideOwnConsoleWindow()
+
 	// Set up file logging FIRST — before config resolution — so that even an
 	// early failure (unreadable config, bad flags) is captured durably. Under a
 	// service/boot supervisor stderr goes nowhere, so without this a
