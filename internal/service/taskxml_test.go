@@ -2,6 +2,8 @@ package service
 
 import (
 	"bytes"
+	"encoding/xml"
+	"io"
 	"strings"
 	"testing"
 )
@@ -39,6 +41,25 @@ func TestTaskXMLLeastPrivilegeWhenNotElevated(t *testing.T) {
 	xml := taskXML(LaunchSpec{User: `D\u`, Executable: `C:\x.exe`, Args: []string{"run"}})
 	if !strings.Contains(xml, `<RunLevel>LeastPrivilege</RunLevel>`) {
 		t.Fatalf("want LeastPrivilege, got:\n%s", xml)
+	}
+}
+
+func TestTaskXMLWellFormed(t *testing.T) {
+	doc := taskXML(LaunchSpec{
+		Executable: `C:\path with space\vmrc-agent.exe`,
+		Args:       []string{"run", "--config", `C:\x\agent.json`},
+		User:       `DESKTOP-1\dev`,
+		Elevated:   true,
+	})
+	dec := xml.NewDecoder(strings.NewReader(doc))
+	for {
+		_, err := dec.Token()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			t.Fatalf("taskXML is not well-formed XML: %v\n%s", err, doc)
+		}
 	}
 }
 
