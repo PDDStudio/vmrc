@@ -52,6 +52,11 @@ func TestTaskXMLWellFormed(t *testing.T) {
 		Elevated:   true,
 	})
 	dec := xml.NewDecoder(strings.NewReader(doc))
+	// taskXML returns a UTF-8 string whose prolog declares encoding="UTF-16"
+	// (the encoding of the bytes utf16LEBOM later writes to disk). Pass the
+	// bytes through unchanged so the decoder checks well-formedness rather than
+	// rejecting the declared-vs-actual encoding mismatch.
+	dec.CharsetReader = func(_ string, input io.Reader) (io.Reader, error) { return input, nil }
 	for {
 		_, err := dec.Token()
 		if err == io.EOF {
