@@ -8,6 +8,9 @@ vmrc.local.*
 *.local.ps1
 *.local
 
+# Local-only project skill: VM debug/connect helpers (personal, carries local paths)
+.claude/skills/debug-vmrc-vm/
+
 # tsnet / service state
 *.state
 *.state/
