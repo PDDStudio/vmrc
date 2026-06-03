@@ -88,6 +88,13 @@ the release isn't fetchable, so migration runs locally off the delivered binary.
 
 ## Troubleshooting
 
+- **Agent starts then immediately stops:** read the log file. The agent tees all
+  output to `<config-dir>\logs\agent.log` — `%LOCALAPPDATA%\vmrc\logs\agent.log`
+  in user mode, `C:\ProgramData\vmrc\logs\agent.log` with `--system` (on
+  Linux/macOS it sits next to the config likewise). Each start writes a banner
+  (version/pid/args); the line(s) after it — a config error, a tunnel-bringup
+  failure, or a `PANIC:` stack — are the reason it exited. Override the path with
+  `--log-file` / `VMRC_LOG_FILE`.
 - **Not in `vmrc ls`:** check `vmrc-agent.exe status` on the VM; confirm the auth
   key was tagged `tag:vmrc` and not expired; check Tailscale ACLs allow your host
   to reach port `47800`.

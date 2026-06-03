@@ -68,6 +68,15 @@ func defaultPaths(goos string) paths {
 // DefaultConfigPath is the config-file location used when --config is unset.
 func DefaultConfigPath() string { return defaultPaths(runtime.GOOS).ConfigPath }
 
+// LogPath returns the agent's log-file path, conventionally located next to the
+// config file at <config-dir>/logs/agent.log. Deriving it from the config path
+// (rather than the install mode) is deliberate: the boot-launched `run` body is
+// given only --config, and that path is already mode-correct, so the log lands
+// in the right place for both user- and system-mode installs.
+func LogPath(configPath string) string {
+	return filepath.Join(filepath.Dir(configPath), "logs", "agent.log")
+}
+
 // ConfigPathFor returns the default config-file path for the given mode:
 // the per-user agent.json for ModeUser, or the system default for ModeSystem.
 func ConfigPathFor(mode Mode) (string, error) {

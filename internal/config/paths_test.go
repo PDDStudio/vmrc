@@ -32,6 +32,22 @@ func TestDefaultPaths(t *testing.T) {
 	}
 }
 
+func TestLogPath(t *testing.T) {
+	tests := []struct {
+		name, configPath, want string
+	}{
+		{"unix system", "/etc/vmrc/agent.json", filepath.FromSlash("/etc/vmrc/logs/agent.log")},
+		{"unix user", "/home/u/.local/state/vmrc/agent.json", filepath.FromSlash("/home/u/.local/state/vmrc/logs/agent.log")},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := LogPath(tt.configPath); got != tt.want {
+				t.Errorf("LogPath(%q) = %q, want %q", tt.configPath, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestDefaultsAreAbsolute(t *testing.T) {
 	c := Defaults()
 	if !filepath.IsAbs(c.StateDir) {

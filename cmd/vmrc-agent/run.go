@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"runtime/debug"
 	"time"
 
 	"github.com/pddstudio/vmrc/internal/agent"
@@ -33,6 +34,7 @@ func runCommand() *cli.Command {
 			&cli.StringFlag{Name: "token", Usage: "shared-token fallback (prefer the VMRC_TOKEN env var)", Sources: cli.EnvVars("VMRC_TOKEN")},
 			&cli.StringFlag{Name: "hostname", Usage: "tsnet node name on the tailnet", Sources: cli.EnvVars("VMRC_HOSTNAME")},
 			&cli.StringFlag{Name: "state-dir", Usage: "tsnet state directory", Sources: cli.EnvVars("VMRC_STATE_DIR")},
+			&cli.StringFlag{Name: "log-file", Usage: "log-file path (default: <config-dir>/logs/agent.log)", Sources: cli.EnvVars("VMRC_LOG_FILE")},
 			&cli.BoolFlag{Name: "local", Usage: "serve on a plain local TCP listener (dev; bypasses the tailnet tunnel)"},
 		},
 		Action: runAction,
@@ -137,6 +139,20 @@ func resolveConfigFrom(cmd *cli.Command, cfg config.Config, path string, explici
 }
 
 func runAction(ctx context.Context, cmd *cli.Command) error {
+	// Set up file logging FIRST — before config resolution — so that even an
+	// early failure (unreadable config, bad flags) is captured durably. Under a
+	// service/boot supervisor stderr goes nowhere, so without this a
+	// start-then-stop crash leaves no trace. A logging failure is non-fatal: warn
+	// and keep going on stderr only.
+	logPath := cmd.String("log-file")
+	if logPath == "" {
+		logPath = config.LogPath(configPath(cmd))
+	}
+	banner := fmt.Sprintf("vmrc-agent %s (commit %s) starting: pid=%d args=%v", version, commit, os.Getpid(), os.Args[1:])
+	if err := setupLogging(logPath, banner); err != nil {
+		log.Printf("WARNING: file logging to %q disabled: %v", logPath, err)
+	}
+
 	cfg, err := resolveConfig(cmd)
 	if err != nil {
 		return err
@@ -146,7 +162,18 @@ func runAction(ctx context.Context, cmd *cli.Command) error {
 		Name:        cmd.String("service-name"),
 		DisplayName: serviceDisplayName,
 		Description: serviceDescription,
-		Run:         func(c context.Context) error { return serveAgent(c, cfg, local) },
+		// Recover panics in the serve goroutine: a panic there would otherwise
+		// crash the process with the stack only on (discarded) stderr. Log it to
+		// the file and surface it as an error so the supervisor records a failure.
+		Run: func(c context.Context) (err error) {
+			defer func() {
+				if r := recover(); r != nil {
+					err = fmt.Errorf("agent panic: %v", r)
+					log.Printf("PANIC: %v\n%s", r, debug.Stack())
+				}
+			}()
+			return serveAgent(c, cfg, local)
+		},
 	})
 	if err != nil {
 		return err
