@@ -5,6 +5,7 @@ vmrc.local.*
 # Local-only notes (never committed): build scaffolding, source paths, scratch
 *.local.md
 *.local.txt
+*.local.ps1
 *.local
 
 # tsnet / service state
