@@ -16,8 +16,8 @@ shell.
 - `vmrc` is on PATH (build: `go build -o vmrc ./cmd/vmrc`).
 - Your machine is on the same tailnet as the agents (Tailscale running).
 - Auth: agents that allowlist your tailnet identity need no token. Otherwise set
-  `VMRC_TOKEN` or pass `--token`. Use `--scheme https` for TLS agents and `--tag`
-  to target a non-default ACL tag.
+  `VMRC_TOKEN` or pass `--token`. The CLI uses HTTPS by default; pass `--scheme http`
+  for agents on a tailnet without HTTPS certs, and `--tag` to target a non-default ACL tag.
 
 ## Discover the fleet
 

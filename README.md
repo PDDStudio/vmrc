@@ -5,52 +5,111 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
 [![Go](https://img.shields.io/github/go-mod/go-version/pddstudio/vmrc)](./go.mod)
 
-> **Status: working.** Host CLI + self-installing agent + embedded tailnet + identity
-> auth + cross-platform release builds are all implemented. On Windows the agent
-> captures the logged-in user's desktop even when running as a boot service. The native
-> MCP server mode (`vmrc mcp`) is planned. See the quick starts below.
+`vmrc` is a small tool for **remote-controlling a fleet of virtual machines over a
+Tailscale tailnet** — no RDP, no SSH, no system Tailscale install required on the VM.
+From your machine you can screenshot a VM's desktop, click and type into its GUI, run
+shell commands, and move files in and out — across one VM or many at once.
 
-## What this is
+It ships as **two binaries** built from one Go module:
 
-`vmrc` ships as **two binaries** built from one Go module:
+- **`vmrc`** — the host-side CLI you run from your own machine to drive the fleet
+  (`vmrc ls`, `vmrc exec`, `vmrc shot`, `vmrc click`/`type`/`key`, `vmrc get`/`put`).
+- **`vmrc-agent`** — a single binary you drop onto a VM. It installs itself as a
+  boot/login service, joins your tailnet on its own (embedded `tsnet`), and serves a
+  small, identity-gated HTTP API the CLI talks to.
 
-**`vmrc-agent`** — you drop it onto a VM. It:
+Because the interface is just a CLI, it's equally drivable by a **human or an AI agent**.
+A bundled Claude Code skill teaches an agent the *screenshot → reason → act* loop
+([install it below](#3-install-the-ai-agent-skill)).
 
-1. **Installs itself as a boot service** (Windows Service / launchd / systemd) so it runs in
-   the background every time the machine starts.
-2. **Joins your Tailscale tailnet by itself** (embedded `tsnet` — no system Tailscale install
-   required on the VM), so the tunnel comes up with the process.
-3. **Exposes a small, identity-gated HTTP API** for remote control: screenshot the desktop,
-   read files/logs, run commands, spawn detached processes, and push/pull files.
+## How it works
 
-**`vmrc`** — the **host-side CLI**: from your main machine you run `vmrc ls`,
-`vmrc exec <vm> -- <cmd>`, `vmrc shot <vm>`, `vmrc cp …` to drive a *fleet* of VMs over the
-tailnet. A later phase adds an **MCP server mode** (`vmrc mcp`) so AI agents drive VMs natively.
+```
+  your machine                                VM 1 (Windows)
+  ┌─────────────────┐     tailnet (WG)     ┌───────────────────────────┐
+  │ vmrc ls/exec/…  │◀───────────────────▶ │ vmrc-agent (boot service) │
+  │ (you / AI agent)│  https://vm:47800    │   embeds tsnet  ──► tailnet│
+  └─────────────────┘                      │   serves /exec /shot /…    │
+          ▲                                └───────────────────────────┘
+          │  same tailnet                   VM 2 (Linux), VM 3 (macOS) …
+          └──────────────────────────────────────────────────────────────
+```
 
-## Quick start (agent)
+The **trust boundary is the tailnet plus authentication — nothing else.** Tailscale
+ACLs decide who can reach an agent; the agent then authorizes callers by their
+Tailscale identity (and, optionally, a shared token). The agent never binds to a
+public address. See [Restricting who can drive an agent](#restricting-who-can-drive-an-agent).
 
-On the VM you want to control, from a privileged shell (Administrator on Windows,
-`sudo` on Linux):
+Traffic is **HTTPS by default**: when your tailnet has HTTPS certificates enabled
+(MagicDNS, on by default for modern tailnets) the agent serves TLS automatically and
+the CLI talks HTTPS. On a tailnet without certificates the agent falls back to plain
+HTTP over the WireGuard-encrypted tailnet; reach those agents with `--scheme http`.
 
-1. Create a **tagged auth key** (`tag:vmrc`) in the Tailscale admin console.
-2. Run setup with the key in the environment:
+---
 
-   ```sh
-   TS_AUTHKEY=tskey-... vmrc-agent setup
-   ```
+## 1. Install the host CLI (`vmrc`)
 
-That's it — `setup` writes the config, copies the agent into a managed working
-directory, creates its directories, enrolls the VM on your tailnet, and installs +
-starts the agent so it returns automatically after a reboot/logon. The key is used
-only during enrollment and is never written to disk. Re-running `setup` is safe.
+Run this on **your own machine** — the one that already has Tailscale running.
 
-See [docs/runbook-windows.md](docs/runbook-windows.md) for the lower-level
-commands (`run`/`install`/`start`/`stop`/`status`/`uninstall`) and where state lives.
+**Quick install** (downloads the latest release for your OS/arch, SHA-256-verifies it
+against the release `checksums.txt`, and puts it on your `PATH`):
 
-### Install modes (user vs system)
+```sh
+# Linux / macOS
+curl -fsSL https://raw.githubusercontent.com/pddstudio/vmrc/main/scripts/install.sh | sh
+```
 
-`setup` (and `install`/`start`/`stop`/`status`/`uninstall`) default to **user-session
-mode** and accept a `--system` override:
+The installer honors `VMRC_VERSION` (pin a tag) and `VMRC_BIN_DIR` (install location).
+
+**From source:**
+
+```sh
+go build -o vmrc ./cmd/vmrc      # or: make build  (both binaries → bin/)
+vmrc --version                   # reports the build stamp
+```
+
+Verify it can see your fleet:
+
+```sh
+vmrc ls                          # lists tag:vmrc agents on your tailnet
+```
+
+## 2. Install the agent on a VM (`vmrc-agent`)
+
+Run this **on each VM you want to control**, from a privileged shell.
+
+First, create a **tagged auth key** (`tag:vmrc`) in the
+[Tailscale admin console](https://login.tailscale.com/admin/settings/keys).
+
+**Quick install:**
+
+```powershell
+# Windows VM — from an Administrator PowerShell:
+irm https://raw.githubusercontent.com/pddstudio/vmrc/main/scripts/install.ps1 | iex
+```
+
+```sh
+# Linux / macOS VM — installs vmrc-agent, then prints the setup step:
+curl -fsSL https://raw.githubusercontent.com/pddstudio/vmrc/main/scripts/install.sh | VMRC_BINARY=vmrc-agent sh
+```
+
+Then enroll the VM by running `setup` with the auth key in the environment:
+
+```sh
+TS_AUTHKEY=tskey-... vmrc-agent setup
+```
+
+That's it. `setup` writes the config, copies the agent into a managed working
+directory, enrolls the VM on your tailnet, and installs + starts the service so it
+comes back automatically after a reboot or logon. The auth key is used only during
+enrollment and is never written to disk. Re-running `setup` is safe.
+
+The VM now appears in `vmrc ls` on your host, ready to drive.
+
+### Install modes (user vs. system)
+
+`setup` (and the lower-level `install`/`start`/`stop`/`status`/`uninstall`) default to
+**user-session mode** and accept a `--system` override:
 
 | | Default — user mode | `--system` |
 |---|---|---|
@@ -63,31 +122,68 @@ mode** and accept a `--system` override:
 
 User mode is the default because it can see and drive the desktop. The agent's binary
 lives under `<workdir>/bin/` and `update` replaces it there (no elevation needed in
-user mode). The `--system` service path is retained as an override and is being
-hardened in a later phase.
+user mode).
 
-## Quick start (host)
+See [docs/runbook-windows.md](docs/runbook-windows.md) for the lower-level commands and
+where state lives.
 
-On your main machine (which already runs Tailscale), build `vmrc` and drive the fleet:
+> **macOS screenshots:** release `vmrc-agent` binaries are built with `CGO_ENABLED=0`,
+> so on macOS `/screenshot` fails with HTTP 500 `no active displays` (`exec`/`get`/`put`/`read`
+> work normally). Screen capture on macOS needs a cgo build with the macOS SDK — build
+> `vmrc-agent` locally on a Mac (`go build ./cmd/vmrc-agent`) if you need it. macOS capture
+> also requires Screen-Recording (TCC) permission and a user-session service — see the runbook.
+
+## 3. Install the AI-agent skill
+
+`vmrc` is designed to be driven by an AI agent, not just a human. The repo ships a
+**Claude Code skill** at [`.claude/skills/vmrc-cli/`](./.claude/skills/vmrc-cli/SKILL.md)
+that teaches the agent the *screenshot → reason → act* loop over the CLI.
+
+- **In this repo:** nothing to do — Claude Code auto-discovers the skill whenever you
+  open the project.
+- **From another workspace:** copy the skill into a directory the agent reads, then it
+  becomes available there too:
+
+  ```sh
+  # project-level (this workspace only):
+  cp -r .claude/skills/vmrc-cli /path/to/other-project/.claude/skills/
+
+  # user-level (every workspace for your user):
+  cp -r .claude/skills/vmrc-cli ~/.claude/skills/
+  ```
+
+Once installed, ask the agent to control a VM in plain language ("take a screenshot of
+`buildbox`", "click the OK button", "run `systeminfo` on `vm1`") and it will drive the
+CLI for you. The agent operates the `vmrc` CLI only — it never calls the HTTP API
+directly, so the same tailnet + identity auth applies.
+
+---
+
+## Driving the fleet
 
 ```sh
-go build -o vmrc ./cmd/vmrc
-
 vmrc ls                                  # list tag:vmrc agents on your tailnet
 vmrc exec buildbox -- systeminfo         # run a command, stream output + exit code
 vmrc exec vm1,vm2 -- whoami              # fan out to several VMs (labeled output)
 vmrc exec --all -- "uptime"              # every tag:vmrc agent
-vmrc shot buildbox -o shot.png           # screenshot
+vmrc shot buildbox -o shot.png           # screenshot the desktop
+vmrc click buildbox 640 300              # click at absolute screen pixels
+vmrc type  buildbox "hello world"        # type literal text
+vmrc key   buildbox "Enter"              # press a key / combo (Tab, Ctrl+C, Alt+F4…)
 vmrc get buildbox:C:\out\app.zip ./app.zip
 vmrc put ./tool.exe buildbox:C:\tools\tool.exe
 ```
 
-Discovery uses your system Tailscale (no agent list to maintain). Auth is by your tailnet
-identity — an agent that allowlists you needs no token; for token-fallback agents pass
-`--token` or set `VMRC_TOKEN`. Use `--scheme https` if an agent serves TLS, and `--tag` to
-target a different ACL tag.
+Discovery uses your system Tailscale (there's no agent list to maintain). Auth is by
+your tailnet identity — an agent that allowlists you needs no token; for token-fallback
+agents pass `--token` or set `VMRC_TOKEN`. The CLI talks **HTTPS by default**; pass
+`--scheme http` for agents on a tailnet without HTTPS certs, and `--tag` to target a
+different ACL tag.
 
-### Restricting who can drive the agent
+> **Note:** `click`/`type`/`key` are Windows-only today (macOS/Linux return "not
+> supported") and need a logged-in interactive session, the same as `shot`.
+
+### Restricting who can drive an agent
 
 > [!IMPORTANT]
 > **The security boundary is the tailnet plus auth — nothing else.** The agent
@@ -118,98 +214,31 @@ so it is always token-only.
 
 Both binaries update themselves from this repo's GitHub Releases — download,
 SHA-256-verify against the release `checksums.txt`, then atomically replace their
-own executable. No GitHub token is needed (the repo is public); set `GITHUB_TOKEN`
-only if you hit the unauthenticated API rate limit.
+own executable. No GitHub token is needed; set `GITHUB_TOKEN` only if you hit the
+unauthenticated API rate limit.
 
 ```sh
-vmrc update --self                 # update this local vmrc CLI
-vmrc update --self --check         # report the available version, install nothing
+vmrc update --self                   # update this local vmrc CLI
+vmrc update --self --check           # report the available version, install nothing
 vmrc update --self --version v0.3.0  # pin a specific release (reinstall/downgrade)
 
-vmrc update --all                  # drive every tag:vmrc agent to self-update
-vmrc update buildbox,vm1           # update named agents
-vmrc update --all --check          # report each agent's available version
+vmrc update --all                    # drive every tag:vmrc agent to self-update
+vmrc update buildbox,vm1             # update named agents
+vmrc update --all --check            # report each agent's available version
 ```
 
 On a VM you can also update the agent locally:
 
 ```sh
-vmrc-agent update                  # stop → replace managed binary in bin/ → restart
-vmrc-agent update --check          # report only
+vmrc-agent update                    # stop → replace managed binary in bin/ → restart
+vmrc-agent update --check            # report only
 ```
 
-Remote agent updates (`vmrc update --all`) drive each agent's authenticated
-`/update` endpoint: the agent fetches the release itself, replaces its binary,
-and exits so its boot service relaunches the new binary. A dev/source build
-(`version == "dev"`) refuses to update unless you pass `--force` or
-`--version <tag>`; prereleases are ignored unless you pass `--pre`.
-
-## Driving VMs with an AI agent
-
-`vmrc` is designed to be driven by an AI agent, not just a human. An in-repo
-Claude Code skill teaches an agent the screenshot → reason → act loop over the
-CLI — see [`.claude/skills/vmrc-cli/SKILL.md`](./.claude/skills/vmrc-cli/SKILL.md)
-(auto-discovered by Claude Code when you open this repo). To reproduce the full
-flow on a fresh VM, follow [docs/testing-on-a-vm.md](./docs/testing-on-a-vm.md).
-
-## Install / build
-
-**Quick install** — downloads the latest release for your OS/arch, SHA-256-verifies
-it against the release `checksums.txt`, and puts the binary on your `PATH`:
-
-```sh
-# Host CLI (Linux/macOS):
-curl -fsSL https://raw.githubusercontent.com/pddstudio/vmrc/main/scripts/install.sh | sh
-
-# Agent on a VM (Linux/macOS) — installs vmrc-agent, then prints the setup step:
-curl -fsSL https://raw.githubusercontent.com/pddstudio/vmrc/main/scripts/install.sh | VMRC_BINARY=vmrc-agent sh
-```
-
-```powershell
-# Agent on a Windows VM (run from an Administrator PowerShell):
-irm https://raw.githubusercontent.com/pddstudio/vmrc/main/scripts/install.ps1 | iex
-```
-
-The installer honors `VMRC_BINARY` (`vmrc`/`vmrc-agent`), `VMRC_VERSION` (pin a tag),
-and `VMRC_BIN_DIR` (install location); the PowerShell script takes `-Binary`,
-`-Version`, `-BinDir`. After the first install, the binary updates itself
-(see [Updating](#updating)).
-
-**From a release (manual):** download the archive for your OS/arch from the
-[Releases](https://github.com/pddstudio/vmrc/releases) page, verify it against
-`checksums.txt`, unpack, and place the binary on your `PATH`. For the agent,
-then follow the `setup` quick-start above.
-
-**From source (Make):**
-
-```sh
-make build         # both binaries → bin/ (version-stamped from git)
-make dev-install   # build the CLI and symlink it onto your PATH (live rebuilds)
-make check         # vet + test + lint (the CI gate); make help lists all targets
-```
-
-**From source (plain `go`):**
-
-```sh
-go build -o vmrc       ./cmd/vmrc          # host CLI
-go build -o vmrc-agent ./cmd/vmrc-agent    # VM agent
-vmrc --version                             # reports the build stamp
-```
-
-**All targets at once** (requires [GoReleaser](https://goreleaser.com)):
-
-```sh
-make snapshot                                 # win/linux/darwin × amd64/arm64 → dist/
-make snapshot-host                            # just your host
-# (equivalently: goreleaser build --snapshot --clean [--single-target])
-```
-
-> **macOS screenshots:** release `vmrc-agent` binaries are built with `CGO_ENABLED=0`,
-> so on macOS `/screenshot` fails with HTTP 500 `no active displays` (`exec`/`get`/`put`/`read`
-> work normally). Screen capture on macOS needs a cgo build with the macOS SDK — build
-> `vmrc-agent` locally on a Mac (`go build ./cmd/vmrc-agent`) if you need it. Note that
-> macOS capture also requires Screen-Recording (TCC) permission and a user-session
-> service — see the runbook.
+Remote agent updates (`vmrc update --all`) drive each agent's authenticated `/update`
+endpoint: the agent fetches the release itself, replaces its binary, and exits so its
+service relaunches the new binary. A dev/source build (`version == "dev"`) refuses to
+update unless you pass `--force` or `--version <tag>`; prereleases are ignored unless
+you pass `--pre`.
 
 ## Agent configuration
 
@@ -233,52 +262,38 @@ See [`vmrc.example.json`](./vmrc.example.json) for a template.
 | tailnet auth key (enrollment) | `TS_AUTHKEY` |
 | shared-token fallback | `VMRC_TOKEN` |
 
-## Why it exists
+## Building from source
 
-It generalizes a proven internal control agent that let a human *and* an AI agent drive a
-Windows GUI VM (screenshots, logs, running build tooling) over Tailscale without RDP or SSH.
-That pattern proved broadly useful; `vmrc` extracts it into a standalone, multi-OS, multi-VM,
-self-installing tool. See [CONCEPT.md](./CONCEPT.md).
-
-## Mental model
-
-```
-  host machine (Mac)                         VM 1 (Windows)
-  ┌─────────────────┐     tailnet (WG)     ┌──────────────────────────┐
-  │ vmrc ls/exec/…  │◀───────────────────▶ │ vmrc-agent (boot service) │
-  │ (CLI / MCP)     │   http://vm:47800    │   embeds tsnet  ──► tailnet│
-  └─────────────────┘                      │   serves /exec /shot /…   │
-          ▲                                └──────────────────────────┘
-          │  same tailnet                   VM 2 (Linux), VM 3 (macOS) …
-          └──────────────────────────────────────────────────────────────
+```sh
+make build         # both binaries → bin/ (version-stamped from git)
+make dev-install   # build the CLI and symlink it onto your PATH (live rebuilds)
+make check         # vet + test + lint (the CI gate); make help lists all targets
 ```
 
-Trust boundary = the tailnet. Tailscale ACLs decide who can reach an agent; the agent
-authorizes callers by their Tailscale identity (and optionally a shared token).
+Plain `go`:
 
-## Documents
+```sh
+go build -o vmrc       ./cmd/vmrc          # host CLI
+go build -o vmrc-agent ./cmd/vmrc-agent    # VM agent
+```
+
+All release targets at once (requires [GoReleaser](https://goreleaser.com)):
+
+```sh
+make snapshot        # win/linux/darwin × amd64/arm64 → dist/
+make snapshot-host   # just your host
+```
+
+## Documentation
 
 | File | What's in it |
 |---|---|
-| [CONCEPT.md](./CONCEPT.md) | The why, the proven origin, capabilities, non-goals |
 | [ARCHITECTURE.md](./ARCHITECTURE.md) | Technical design: agent, tunnel, service, host CLI, endpoints, security |
-| [ROADMAP.md](./ROADMAP.md) | Phased implementation plan (P0→P6) with done-checks |
-| [CLAUDE.md](./CLAUDE.md) | Project context + decisions for Claude Code in this repo |
 | [CONTRIBUTING.md](./CONTRIBUTING.md) | How to build, test, lint, and contribute |
-| [.claude/skills/vmrc-cli/SKILL.md](./.claude/skills/vmrc-cli/SKILL.md) | Claude Code skill: drive a VM fleet via the CLI |
+| [.claude/skills/vmrc-cli/SKILL.md](./.claude/skills/vmrc-cli/SKILL.md) | The Claude Code skill: drive a VM fleet via the CLI |
 | [docs/testing-on-a-vm.md](./docs/testing-on-a-vm.md) | End-to-end Windows VM test walkthrough |
 | [docs/runbook-windows.md](./docs/runbook-windows.md) | Windows install/enroll/operate runbook |
 
-## Decided direction (do not re-litigate)
+## License
 
-- **Binaries:** two — `vmrc` (host CLI) + `vmrc-agent` (VM agent)
-- **Language:** Go
-- **CLI framework:** `urfave/cli/v3`
-- **Config:** flags + env + JSON file
-- **Tunnel:** embedded `tailscale.com/tsnet`
-- **Target OS:** Windows, Linux, macOS
-- **Host UX:** CLI now, MCP server later
-- **Auto-start:** `kardianos/service`
-- **Auth:** Tailnet identity (tsnet `WhoIs`) + optional shared token
-
-Full rationale in [CLAUDE.md](./CLAUDE.md) and [ARCHITECTURE.md](./ARCHITECTURE.md).
+[MIT](./LICENSE).

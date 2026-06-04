@@ -63,7 +63,7 @@ func globalFlags() []cli.Flag {
 	return []cli.Flag{
 		&cli.StringFlag{Name: "token", Usage: "shared-token fallback (prefer the VMRC_TOKEN env var)", Sources: cli.EnvVars("VMRC_TOKEN")},
 		&cli.IntFlag{Name: "port", Usage: "agent HTTP port", Value: 47800},
-		&cli.StringFlag{Name: "scheme", Usage: "agent URL scheme (http or https)", Value: "http"},
+		&cli.StringFlag{Name: "scheme", Usage: "agent URL scheme (https default; pass http for agents on a tailnet without HTTPS certs)", Value: "https"},
 		&cli.StringFlag{Name: "tag", Usage: "tailnet tag identifying vmrc agents", Value: host.DefaultTag},
 		&cli.DurationFlag{Name: "timeout", Usage: "per-request client timeout (0 = none; exec --all defaults to 11m to bound hung nodes)", Value: 0},
 	}

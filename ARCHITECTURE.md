@@ -146,7 +146,8 @@ The host already runs system Tailscale. Discover agents via the local tailnet:
 
 ### Command mapping
 
-Each verb is a thin HTTP client to `http://<vm-magicdns-or-100.x>:47800/<endpoint>`:
+Each verb is a thin HTTP client to `https://<vm-magicdns-or-100.x>:47800/<endpoint>`
+(HTTPS by default; `--scheme http` for agents on a tailnet without HTTPS certs):
 - `vmrc exec <vm> -- tasklist` → GET `/exec?cmd=…`, print body, exit with `X-Exit-Status`.
 - `vmrc shot <vm> -o s.png` → GET `/screenshot`, write PNG.
 - `vmrc get <vm>:C:\out\a.epk ./a.epk` → GET `/get?path=…`.
