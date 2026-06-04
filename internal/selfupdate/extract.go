@@ -16,9 +16,28 @@ import (
 // the expected binary entry (skipping README/LICENSE).
 var errBinaryNotInArchive = errors.New("binary not found in archive")
 
+// errBinaryTooLarge means an archive entry exceeded maxBinarySize. We fail
+// rather than install the truncated prefix io.LimitReader would otherwise yield.
+var errBinaryTooLarge = errors.New("binary in archive exceeds size cap")
+
 // maxBinarySize caps a single extracted file (defense against a malicious or
 // corrupt archive). The current agent binary is ~42 MB.
 const maxBinarySize = 200 << 20 // 200 MiB
+
+// readCapped reads all of r but fails if it would exceed max bytes. It reads
+// max+1 so it can distinguish "exactly at the cap" from "over the cap"; plain
+// io.LimitReader(max) silently truncates an oversized entry, which could install
+// a corrupt binary.
+func readCapped(r io.Reader, max int64) ([]byte, error) {
+	b, err := io.ReadAll(io.LimitReader(r, max+1))
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(b)) > max {
+		return nil, errBinaryTooLarge
+	}
+	return b, nil
+}
 
 // extractBinary pulls the file named binaryName (or binaryName+".exe") out of a
 // goreleaser archive, skipping README/LICENSE. The format is chosen from
@@ -54,7 +73,7 @@ func extractFromTarGz(archive []byte, binaryName string) ([]byte, error) {
 		if hdr.Typeflag != tar.TypeReg || !wantName(hdr.Name, binaryName) {
 			continue
 		}
-		b, err := io.ReadAll(io.LimitReader(tr, maxBinarySize))
+		b, err := readCapped(tr, maxBinarySize)
 		if err != nil {
 			return nil, fmt.Errorf("reading %s: %w", hdr.Name, err)
 		}
@@ -80,7 +99,7 @@ func extractFromZip(archive []byte, binaryName string) ([]byte, error) {
 		if err != nil {
 			return nil, fmt.Errorf("opening %s: %w", f.Name, err)
 		}
-		b, err := io.ReadAll(io.LimitReader(rc, maxBinarySize))
+		b, err := readCapped(rc, maxBinarySize)
 		_ = rc.Close()
 		if err != nil {
 			return nil, fmt.Errorf("reading %s: %w", f.Name, err)

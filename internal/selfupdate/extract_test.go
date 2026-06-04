@@ -5,8 +5,31 @@ import (
 	"archive/zip"
 	"bytes"
 	"compress/gzip"
+	"errors"
+	"strings"
 	"testing"
 )
+
+func TestReadCapped(t *testing.T) {
+	t.Run("under cap", func(t *testing.T) {
+		b, err := readCapped(strings.NewReader("hello"), 10)
+		if err != nil || string(b) != "hello" {
+			t.Fatalf("readCapped under cap = %q, %v", b, err)
+		}
+	})
+	t.Run("exactly at cap", func(t *testing.T) {
+		b, err := readCapped(strings.NewReader("hello"), 5)
+		if err != nil || string(b) != "hello" {
+			t.Fatalf("readCapped at cap = %q, %v", b, err)
+		}
+	})
+	t.Run("over cap fails, does not truncate", func(t *testing.T) {
+		b, err := readCapped(strings.NewReader("hello world"), 5)
+		if !errors.Is(err, errBinaryTooLarge) {
+			t.Fatalf("readCapped over cap = %q, %v; want errBinaryTooLarge", b, err)
+		}
+	})
+}
 
 // archiveEntry is one file placed into a test archive.
 type archiveEntry struct {

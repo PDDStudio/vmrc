@@ -13,7 +13,8 @@ import (
 )
 
 // Client is a per-agent HTTP verb client. BaseURL is like
-// "http://vm.tailnet.ts.net:47800". Token, when non-empty, is sent as ?token=.
+// "http://vm.tailnet.ts.net:47800". Token, when non-empty, is sent as an
+// "Authorization: Bearer <token>" header (kept out of URLs, logs, and proxies).
 type Client struct {
 	BaseURL string
 	HTTP    *http.Client
@@ -27,16 +28,15 @@ func (c *Client) httpClient() *http.Client {
 	return http.DefaultClient
 }
 
-func (c *Client) url(endpoint string, q url.Values) string {
+// do sets the bearer token (when configured) and dispatches the request.
+func (c *Client) do(req *http.Request) (*http.Response, error) {
 	if c.Token != "" {
-		// Clone before mutating so the caller's map is not modified.
-		clone := make(url.Values, len(q)+1)
-		for k, v := range q {
-			clone[k] = v
-		}
-		clone.Set("token", c.Token)
-		q = clone
+		req.Header.Set("Authorization", "Bearer "+c.Token)
 	}
+	return c.httpClient().Do(req)
+}
+
+func (c *Client) url(endpoint string, q url.Values) string {
 	u := c.BaseURL + endpoint
 	if enc := q.Encode(); enc != "" {
 		u += "?" + enc
@@ -59,7 +59,7 @@ func (c *Client) Exec(ctx context.Context, cmdline string) ([]byte, int, error) 
 	if err != nil {
 		return nil, -1, err
 	}
-	resp, err := c.httpClient().Do(req)
+	resp, err := c.do(req)
 	if err != nil {
 		return nil, -1, err
 	}
@@ -84,7 +84,7 @@ func (c *Client) Screenshot(ctx context.Context) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	resp, err := c.httpClient().Do(req)
+	resp, err := c.do(req)
 	if err != nil {
 		return nil, err
 	}
@@ -103,7 +103,7 @@ func (c *Client) Get(ctx context.Context, remotePath string) (io.ReadCloser, err
 	if err != nil {
 		return nil, err
 	}
-	resp, err := c.httpClient().Do(req)
+	resp, err := c.do(req)
 	if err != nil {
 		return nil, err
 	}
@@ -159,7 +159,7 @@ func (c *Client) CheckUpdate(ctx context.Context, p UpdateParams) (UpdateStatus,
 	if err != nil {
 		return UpdateStatus{}, err
 	}
-	resp, err := c.httpClient().Do(req)
+	resp, err := c.do(req)
 	if err != nil {
 		return UpdateStatus{}, err
 	}
@@ -184,7 +184,7 @@ func (c *Client) Update(ctx context.Context, p UpdateParams) (UpdateResult, erro
 	if err != nil {
 		return UpdateResult{}, err
 	}
-	resp, err := c.httpClient().Do(req)
+	resp, err := c.do(req)
 	if err != nil {
 		return UpdateResult{}, err
 	}
@@ -211,7 +211,7 @@ func (c *Client) Put(ctx context.Context, remotePath string, body io.Reader) err
 	if err != nil {
 		return err
 	}
-	resp, err := c.httpClient().Do(req)
+	resp, err := c.do(req)
 	if err != nil {
 		return err
 	}

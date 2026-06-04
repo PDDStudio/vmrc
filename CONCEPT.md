@@ -12,7 +12,8 @@ launching/stopping the application — used to require RDP. The control agent re
 
 - runs on the VM and listens on `:47800`,
 - is reachable only over Tailscale (the tailnet is the only route in),
-- is gated by a shared token (`?token=…`, constant-time compared),
+- is gated by a shared token (`Authorization: Bearer …` header, constant-time compared; a
+  legacy `?token=…` query is still accepted for backward compatibility),
 - exposes 6 endpoints: `/screenshot`, `/read/` (logs), `/exec`, `/spawn`, `/get`, `/put`.
 
 The operator on the host (and, crucially, an AI agent via a skill) drives the VM with plain

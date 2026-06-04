@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"runtime/debug"
+	"strings"
 	"time"
 
 	"github.com/pddstudio/vmrc/internal/agent"
@@ -147,6 +148,36 @@ func resolveConfigFrom(cmd *cli.Command, cfg config.Config, path string, explici
 	return cfg, nil
 }
 
+// secretFlags are flag names whose values must never reach the log (the shared
+// token; the GitHub token only raises a rate limit but is still a credential).
+var secretFlags = map[string]bool{"token": true, "github-token": true}
+
+// redactArgs returns a copy of args with the values of secretFlags masked,
+// handling both "--token VALUE" and "--token=VALUE" forms. Used to keep the
+// startup banner (which records the launch args) free of credentials.
+func redactArgs(args []string) []string {
+	out := make([]string, len(args))
+	maskNext := false
+	for i, a := range args {
+		if maskNext {
+			out[i] = "***"
+			maskNext = false
+			continue
+		}
+		name, _, hasEq := strings.Cut(strings.TrimLeft(a, "-"), "=")
+		switch {
+		case secretFlags[name] && hasEq:
+			out[i] = a[:strings.IndexByte(a, '=')+1] + "***"
+		case secretFlags[name]:
+			out[i] = a
+			maskNext = true
+		default:
+			out[i] = a
+		}
+	}
+	return out
+}
+
 func runAction(ctx context.Context, cmd *cli.Command) error {
 	// Windows: hide the console window when we were launched by the logon
 	// Scheduled Task (sole owner of a fresh console). No-op elsewhere and when
@@ -162,7 +193,7 @@ func runAction(ctx context.Context, cmd *cli.Command) error {
 	if logPath == "" {
 		logPath = config.LogPath(configPath(cmd))
 	}
-	banner := fmt.Sprintf("vmrc-agent %s (commit %s) starting: pid=%d args=%v", version, commit, os.Getpid(), os.Args[1:])
+	banner := fmt.Sprintf("vmrc-agent %s (commit %s) starting: pid=%d args=%v", version, commit, os.Getpid(), redactArgs(os.Args[1:]))
 	if err := setupLogging(logPath, banner); err != nil {
 		log.Printf("WARNING: file logging to %q disabled: %v", logPath, err)
 	}
@@ -262,7 +293,16 @@ func serveAgent(ctx context.Context, cfg config.Config, local bool) error {
 // gracefully (10s budget) and, if closeTunnel is non-nil, tears down the tailnet
 // node.
 func serve(ctx context.Context, h http.Handler, ln net.Listener, closeTunnel func() error) error {
-	httpSrv := &http.Server{Handler: h}
+	httpSrv := &http.Server{
+		Handler: h,
+		// Bound the time a peer may take to send request headers, so an
+		// unauthenticated (or slow-loris) peer cannot hold a connection open
+		// indefinitely before auth. Deliberately no Read/Write timeout: /exec runs
+		// up to execTimeout and /get/screenshot stream large bodies, both of which a
+		// global timeout would sever.
+		ReadHeaderTimeout: 30 * time.Second,
+		IdleTimeout:       2 * time.Minute,
+	}
 	errCh := make(chan error, 1)
 	go func() { errCh <- httpSrv.Serve(ln) }()
 

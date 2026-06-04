@@ -112,6 +112,21 @@ remains, and a fresh clone builds and runs per the README.
 
 ---
 
+## Backlog — hardening follow-ups
+
+- **Signed self-update (deferred from the 2026-06-04 audit).** `selfupdate.Apply` verifies the
+  archive's SHA-256 against `checksums.txt` from the *same* release, which catches transport
+  corruption but not a compromised GitHub release, token, or maintainer account that publishes a
+  malicious archive plus a matching checksum. For a remote-control agent, add detached signature
+  verification with a public key pinned in the binary, verified before replacement.
+  - Proposed design: ed25519 (stdlib `crypto/ed25519`, no new dep); goreleaser signs `checksums.txt`
+    (or each archive) with a private key held only in CI secrets; the binary embeds the matching
+    public key and rejects an update whose signature does not verify. Requires a maintainer decision
+    on key generation/custody and a release-pipeline change, so it is tracked here rather than
+    implemented ad hoc.
+
+---
+
 ## Dependencies summary
 
 | Dep | Purpose | Phase |

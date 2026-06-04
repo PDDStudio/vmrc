@@ -31,19 +31,23 @@ func TestExecParsesOutputAndExitStatus(t *testing.T) {
 	}
 }
 
-func TestTokenAppendedOnlyWhenSet(t *testing.T) {
-	var sawToken string
+func TestTokenSentAsBearerHeaderNotQuery(t *testing.T) {
+	var sawAuth, sawQueryToken string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		sawToken = r.URL.Query().Get("token")
+		sawAuth = r.Header.Get("Authorization")
+		sawQueryToken = r.URL.Query().Get("token")
 	}))
 	defer srv.Close()
 	_, _, _ = newClient(srv, "").Exec(context.Background(), "x")
-	if sawToken != "" {
-		t.Fatalf("no token configured but ?token=%q sent", sawToken)
+	if sawAuth != "" {
+		t.Fatalf("no token configured but Authorization=%q sent", sawAuth)
 	}
 	_, _, _ = newClient(srv, "sekret").Exec(context.Background(), "x")
-	if sawToken != "sekret" {
-		t.Fatalf("token not forwarded, got %q", sawToken)
+	if sawAuth != "Bearer sekret" {
+		t.Fatalf("token not sent as bearer header, got Authorization=%q", sawAuth)
+	}
+	if sawQueryToken != "" {
+		t.Fatalf("token must not leak into the query string, got ?token=%q", sawQueryToken)
 	}
 }
 
