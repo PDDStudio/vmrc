@@ -12,27 +12,30 @@ import (
 	"os/signal"
 	"syscall"
 
+	"github.com/pddstudio/vmrc/internal/buildinfo"
 	"github.com/pddstudio/vmrc/internal/host"
 	"github.com/urfave/cli/v3"
 	"tailscale.com/client/local"
 )
 
-// Build stamps, set via -ldflags at release time (see .goreleaser.yaml).
-// Plain `go build` leaves the defaults.
+// Build stamps, set via -ldflags at release time (see .goreleaser.yaml). Plain
+// `go build` / `go install` leave the defaults; buildinfo.Resolve then fills
+// them in from the Go module build info where possible.
 var (
-	version = "dev"
-	commit  = "none"
-	date    = "unknown"
+	version = buildinfo.DevVersion
+	commit  = buildinfo.NoCommit
+	date    = buildinfo.NoDate
 )
 
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
+	v, c, d := buildinfo.Resolve(version, commit, date)
 	cmd := &cli.Command{
 		Name:    "vmrc",
 		Usage:   "drive a fleet of vmrc agents over the tailnet",
-		Version: fmt.Sprintf("%s (commit %s, built %s)", version, commit, date),
+		Version: fmt.Sprintf("%s (commit %s, built %s)", v, c, d),
 		Flags:   globalFlags(),
 		Commands: []*cli.Command{
 			lsCommand(),

@@ -1,6 +1,7 @@
 # vmrc — VM remote control
 
 [![CI](https://github.com/pddstudio/vmrc/actions/workflows/ci.yml/badge.svg)](https://github.com/pddstudio/vmrc/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/pddstudio/vmrc?sort=semver)](https://github.com/pddstudio/vmrc/releases/latest)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
 [![Go](https://img.shields.io/github/go-mod/go-version/pddstudio/vmrc)](./go.mod)
 

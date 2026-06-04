@@ -14,6 +14,8 @@ import (
 
 	"github.com/urfave/cli/v3"
 
+	"github.com/pddstudio/vmrc/internal/buildinfo"
+
 	// Blank import to link the Windows application manifest (.syso resources in
 	// the winres package). The manifest declares supportedOS compatibility so
 	// tsnet's wingoes dependency does not panic on an "incoherent" OS version at
@@ -27,22 +29,24 @@ const (
 	serviceDescription = "vmrc VM remote-control agent"
 )
 
-// Build stamps, set via -ldflags at release time (see .goreleaser.yaml).
-// Plain `go build` leaves the defaults.
+// Build stamps, set via -ldflags at release time (see .goreleaser.yaml). Plain
+// `go build` / `go install` leave the defaults; buildinfo.Resolve then fills
+// them in from the Go module build info where possible.
 var (
-	version = "dev"
-	commit  = "none"
-	date    = "unknown"
+	version = buildinfo.DevVersion
+	commit  = buildinfo.NoCommit
+	date    = buildinfo.NoDate
 )
 
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
+	v, c, d := buildinfo.Resolve(version, commit, date)
 	cmd := &cli.Command{
 		Name:    "vmrc-agent",
 		Usage:   "VM-side remote-control agent",
-		Version: fmt.Sprintf("%s (commit %s, built %s)", version, commit, date),
+		Version: fmt.Sprintf("%s (commit %s, built %s)", v, c, d),
 		Commands: []*cli.Command{
 			runCommand(),
 			setupCommand(),
