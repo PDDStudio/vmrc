@@ -4,11 +4,21 @@ package agent
 
 import (
 	"fmt"
+	"time"
 	"unicode/utf16"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
 )
+
+// typeKeyDelay is paused between successive characters in Type. Injecting an
+// entire string back-to-back (whether as one SendInput batch or rapid per-rune
+// calls) outruns the foreground window's input processing: past a word boundary
+// keystrokes collapse onto the last character (e.g. "vmrc input" -> "vmrc nnn").
+// A small per-key delay paces injection to what apps reliably consume. 12ms
+// removes the gross failure but still glitches a stray character under load;
+// 25ms types ~40 chars/sec and is reliable in testing.
+const typeKeyDelay = 25 * time.Millisecond
 
 var (
 	modUser32            = windows.NewLazySystemDLL("user32.dll")
@@ -184,24 +194,31 @@ func (SystemInjector) Click(x, y int, button string, double bool) error {
 // wScan carries a UTF-16 code unit, so the active keyboard layout is bypassed.
 // A literal '\n' is sent as VK_RETURN (a Unicode newline is a no-op in most
 // controls); '\r' is dropped to avoid a double Enter on CRLF.
+//
+// Each rune is sent in its own SendInput call, paced by typeKeyDelay. Both the
+// batching and the pacing matter: a single giant batch (or rapid back-to-back
+// per-rune calls, which inject just as fast) outrun the foreground window and
+// keystrokes past a word boundary collapse onto the last character. The delay
+// throttles injection to a rate apps reliably consume. A rune's surrogate pair
+// (>BMP) still goes in one call so Windows reassembles it.
 func (SystemInjector) Type(text string) error {
 	if !inActiveSession() {
 		return ErrNoInteractiveSession
 	}
-	var events []input
-	for _, r := range text {
+	for i, r := range text {
+		if i > 0 {
+			time.Sleep(typeKeyDelay)
+		}
+		var events []input
 		switch r {
 		case '\n':
-			events = append(events,
+			events = []input{
 				keyEvent(vkReturn, 0, 0),
 				keyEvent(vkReturn, 0, keyeventfKeyUp),
-			)
+			}
 		case '\r':
-			// skip
+			continue
 		default:
-			// Runes outside the BMP become a UTF-16 surrogate pair; each code
-			// unit is its own down/up event, reassembled by Windows when sent
-			// consecutively in one SendInput batch.
 			for _, cu := range utf16.Encode([]rune{r}) {
 				events = append(events,
 					keyEvent(0, cu, keyeventfUnicode),
@@ -209,8 +226,11 @@ func (SystemInjector) Type(text string) error {
 				)
 			}
 		}
+		if err := sendInputs(events); err != nil {
+			return err
+		}
 	}
-	return sendInputs(events)
+	return nil
 }
 
 // Key presses a combo (e.g. "Ctrl+C"). Modifiers go down in order, the key is
