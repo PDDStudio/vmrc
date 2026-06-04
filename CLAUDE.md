@@ -16,11 +16,8 @@ module:
 
 It is the generalization of a proven internal control agent. See [CONCEPT.md](./CONCEPT.md),
 [ARCHITECTURE.md](./ARCHITECTURE.md), [ROADMAP.md](./ROADMAP.md). The implementation-level design
-and phase plan are authoritative in
-[docs/superpowers/specs/2026-06-01-vmrc-design.md](./docs/superpowers/specs/2026-06-01-vmrc-design.md).
-
-**Status:** pre-implementation. This repo currently holds handoff docs + the design spec. Start
-with the spec's P0.
+and phase plans are kept in the project's local planning notes (`docs/superpowers/`, not
+published) and are authoritative for *how* we build.
 
 ## Decisions already made (do not re-litigate)
 

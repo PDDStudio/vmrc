@@ -11,6 +11,11 @@ vmrc.local.*
 # Local-only project skill: VM debug/connect helpers (personal, carries local paths)
 .claude/skills/debug-vmrc-vm/
 
+# Internal AI-session planning artifacts (specs/plans) and bootstrap prompt —
+# kept locally for reference, not published. Carry local hostnames/paths.
+docs/superpowers/
+KICKOFF_PROMPT.md
+
 # tsnet / service state
 *.state
 *.state/

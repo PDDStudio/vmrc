@@ -3,8 +3,11 @@ package host
 import (
 	"context"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 )
 
 // Bug 1: empty output must produce no labeled lines at all.
@@ -98,8 +101,34 @@ func TestFanoutExecRunsAllAndSorts(t *testing.T) {
 	// here we exercise ordering only, using a client pointed at an unreachable URL,
 	// so every result carries an Err but the Name/order is what we assert.
 	results := FanoutExec(context.Background(), agents,
-		func(a Agent) *Client { return &Client{BaseURL: "http://127.0.0.1:0"} }, "x")
+		func(a Agent) *Client { return &Client{BaseURL: "http://127.0.0.1:0"} }, "x", 0)
 	if len(results) != 2 || results[0].Name != "vm1" || results[1].Name != "vm2" {
 		t.Fatalf("results not sorted by name: %v", results)
+	}
+}
+
+// A reachable-but-hung agent must not block the fan-out beyond the per-agent
+// timeout: FanoutExec applies its own deadline and returns an error for that
+// agent rather than waiting forever.
+func TestFanoutExecPerAgentTimeout(t *testing.T) {
+	hung := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		<-r.Context().Done() // never respond until the request is cancelled
+	}))
+	defer hung.Close()
+
+	agents := []Agent{{Name: "vm1"}}
+	done := make(chan []ExecResult, 1)
+	go func() {
+		done <- FanoutExec(context.Background(), agents,
+			func(a Agent) *Client { return &Client{BaseURL: hung.URL} }, "x", 150*time.Millisecond)
+	}()
+
+	select {
+	case results := <-done:
+		if len(results) != 1 || results[0].Err == nil {
+			t.Fatalf("hung agent should yield an error result, got %+v", results)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("FanoutExec did not return: per-agent timeout not honored")
 	}
 }

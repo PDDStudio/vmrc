@@ -6,7 +6,15 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 )
+
+// DefaultFanoutTimeout bounds each agent's request on a fleet-wide exec when the
+// operator hasn't set --timeout. It sits just above the agent's own 10-minute
+// /exec ceiling, so it only ever trips for an unresponsive node — never for a
+// command the agent would actually run to completion — yet stops one hung node
+// from blocking `exec --all` forever.
+const DefaultFanoutTimeout = 11 * time.Minute
 
 // ExecResult is one agent's outcome from a fan-out exec.
 type ExecResult struct {
@@ -17,8 +25,10 @@ type ExecResult struct {
 }
 
 // FanoutExec runs cmdline on every agent concurrently, building a Client per
-// agent via mkClient. Results are returned sorted by agent name.
-func FanoutExec(ctx context.Context, agents []Agent, mkClient func(Agent) *Client, cmdline string) []ExecResult {
+// agent via mkClient. Results are returned sorted by agent name. When timeout
+// > 0 each agent runs under its own deadline, so a single reachable-but-hung
+// node cannot block the aggregate beyond timeout; 0 means no per-agent bound.
+func FanoutExec(ctx context.Context, agents []Agent, mkClient func(Agent) *Client, cmdline string, timeout time.Duration) []ExecResult {
 	results := make([]ExecResult, len(agents))
 	var wg sync.WaitGroup
 	// One goroutine per agent, unbounded. Fine for practical fleet sizes; a
@@ -27,7 +37,13 @@ func FanoutExec(ctx context.Context, agents []Agent, mkClient func(Agent) *Clien
 		wg.Add(1)
 		go func(i int, a Agent) {
 			defer wg.Done()
-			out, status, err := mkClient(a).Exec(ctx, cmdline)
+			aCtx := ctx
+			if timeout > 0 {
+				var cancel context.CancelFunc
+				aCtx, cancel = context.WithTimeout(ctx, timeout)
+				defer cancel()
+			}
+			out, status, err := mkClient(a).Exec(aCtx, cmdline)
 			results[i] = ExecResult{Name: a.Name, Out: out, ExitStatus: status, Err: err}
 		}(i, a)
 	}

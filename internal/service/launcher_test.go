@@ -2,7 +2,10 @@ package service
 
 import "testing"
 
-type fakeLauncher struct{ actions []string; status string }
+type fakeLauncher struct {
+	actions []string
+	status  string
+}
 
 func (f *fakeLauncher) Install() error          { f.actions = append(f.actions, "install"); return nil }
 func (f *fakeLauncher) Uninstall() error        { f.actions = append(f.actions, "uninstall"); return nil }

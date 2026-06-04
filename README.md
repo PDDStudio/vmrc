@@ -88,6 +88,16 @@ target a different ACL tag.
 
 ### Restricting who can drive the agent
 
+> [!IMPORTANT]
+> **The security boundary is the tailnet plus auth — nothing else.** The agent
+> exposes `exec`/`spawn`, file `get`/`put`, and synthetic input by design, so
+> **anyone authorized to reach an agent can run arbitrary code as the user the
+> agent runs as.** There is no command allowlist or sandbox. Treat authorization
+> to an agent as equivalent to a shell on that VM: keep agents off public
+> interfaces (they bind only to the Tailscale listener), scope your Tailscale
+> ACLs tightly, and use an identity allowlist (below) rather than a shared token
+> wherever you can.
+
 By default the agent is reachable by anything your Tailscale ACLs let onto port
 `47800`. To authorize by **Tailscale identity**, set an allowlist — `allowed_logins`
 (login names) and/or `allowed_tags` (ACL tags) in the config file, or
@@ -253,11 +263,10 @@ authorizes callers by their Tailscale identity (and optionally a shared token).
 | [ARCHITECTURE.md](./ARCHITECTURE.md) | Technical design: agent, tunnel, service, host CLI, endpoints, security |
 | [ROADMAP.md](./ROADMAP.md) | Phased implementation plan (P0→P6) with done-checks |
 | [CLAUDE.md](./CLAUDE.md) | Project context + decisions for Claude Code in this repo |
-| [KICKOFF_PROMPT.md](./KICKOFF_PROMPT.md) | Contributor/AI build-session prompt — paste-ready to open a new build session |
 | [CONTRIBUTING.md](./CONTRIBUTING.md) | How to build, test, lint, and contribute |
 | [.claude/skills/vmrc-cli/SKILL.md](./.claude/skills/vmrc-cli/SKILL.md) | Claude Code skill: drive a VM fleet via the CLI |
 | [docs/testing-on-a-vm.md](./docs/testing-on-a-vm.md) | End-to-end Windows VM test walkthrough |
-| [docs/superpowers/specs/2026-06-01-vmrc-design.md](./docs/superpowers/specs/2026-06-01-vmrc-design.md) | Implementation-level design + phase plan (**authoritative for *how* we build**) |
+| [docs/runbook-windows.md](./docs/runbook-windows.md) | Windows install/enroll/operate runbook |
 
 ## Decided direction (do not re-litigate)
 
