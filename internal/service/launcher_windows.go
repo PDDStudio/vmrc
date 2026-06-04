@@ -9,9 +9,11 @@ import (
 	"strings"
 )
 
-func schtasksRunArgs(name string) []string    { return []string{"/Run", "/TN", name} }
-func schtasksEndArgs(name string) []string    { return []string{"/End", "/TN", name} }
-func schtasksDeleteArgs(name string) []string { return []string{"/Delete", "/TN", name, "/F"} }
+func schtasksRunArgs(name string) []string     { return []string{"/Run", "/TN", name} }
+func schtasksEndArgs(name string) []string     { return []string{"/End", "/TN", name} }
+func schtasksDeleteArgs(name string) []string  { return []string{"/Delete", "/TN", name, "/F"} }
+func schtasksDisableArgs(name string) []string { return []string{"/Change", "/TN", name, "/DISABLE"} }
+func schtasksEnableArgs(name string) []string  { return []string{"/Change", "/TN", name, "/ENABLE"} }
 func schtasksQueryArgs(name string) []string {
 	return []string{"/Query", "/TN", name, "/FO", "LIST", "/V"}
 }
@@ -51,10 +53,28 @@ func (l winLauncher) Uninstall() error {
 	return err
 }
 func (l winLauncher) Start() error {
+	// Re-enable the task before running it: a prior durable Stop disables it, so
+	// without this its logon/keepalive triggers would stay dead. Enabling an
+	// already-enabled task is a harmless no-op (covers the install→start path).
+	if _, err := runSchtasks(schtasksEnableArgs(l.spec.Name)...); err != nil {
+		return err
+	}
 	_, err := runSchtasks(schtasksRunArgs(l.spec.Name)...)
 	return err
 }
-func (l winLauncher) Stop() error { _, err := runSchtasks(schtasksEndArgs(l.spec.Name)...); return err }
+
+// Stop durably stops the agent. /End only terminates the running instance, which
+// the minute keepalive TimeTrigger would relaunch within ~1 minute — so a bare
+// /End is not a real stop, and during `update` the timer could relaunch the old
+// binary mid-Apply. Disabling the task first kills both triggers, then /End
+// terminates the current instance; Start re-enables it.
+func (l winLauncher) Stop() error {
+	if _, err := runSchtasks(schtasksDisableArgs(l.spec.Name)...); err != nil {
+		return err
+	}
+	_, err := runSchtasks(schtasksEndArgs(l.spec.Name)...)
+	return err
+}
 
 func (l winLauncher) Status() (string, error) {
 	out, err := runSchtasks(schtasksQueryArgs(l.spec.Name)...)

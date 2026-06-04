@@ -127,14 +127,6 @@ vmrc-agent update                  # stop → replace managed binary in bin/ →
 vmrc-agent update --check          # report only
 ```
 
-**Migrating a legacy system install to user mode:** if an older `--system`
-(LocalSystem) install is present and user mode isn't set up yet, `vmrc-agent update`
-performs a **one-time, idempotent migration** instead of an in-place swap: it copies
-the config, `state/` (preserving the tailnet node identity — same node, no
-re-enroll), and `files/` into `%LOCALAPPDATA%\vmrc`, registers the user logon agent,
-and removes the system service. The migration runs locally with no network call, so
-it works before the binary's release is fetchable.
-
 Remote agent updates (`vmrc update --all`) drive each agent's authenticated
 `/update` endpoint: the agent fetches the release itself, replaces its binary,
 and exits so its boot service relaunches the new binary. A dev/source build

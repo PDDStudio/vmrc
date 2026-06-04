@@ -30,19 +30,19 @@ func copyFile(src, dst string, perm os.FileMode) error {
 	if err != nil {
 		return fmt.Errorf("open %q: %w", src, err)
 	}
-	defer in.Close()
+	defer func() { _ = in.Close() }()
 	tmp := dst + ".tmp"
 	out, err := os.OpenFile(tmp, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, perm)
 	if err != nil {
 		return fmt.Errorf("create %q: %w", tmp, err)
 	}
 	if _, err := io.Copy(out, in); err != nil {
-		out.Close()
-		os.Remove(tmp)
+		_ = out.Close()
+		_ = os.Remove(tmp)
 		return fmt.Errorf("copy to %q: %w", tmp, err)
 	}
 	if err := out.Close(); err != nil {
-		os.Remove(tmp)
+		_ = os.Remove(tmp)
 		return err
 	}
 	return os.Rename(tmp, dst)
