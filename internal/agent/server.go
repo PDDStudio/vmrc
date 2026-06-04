@@ -45,6 +45,7 @@ type Capturer interface {
 type Server struct {
 	Token     string
 	Capturer  Capturer
+	Injector  Injector
 	LogDir    string
 	BaseDir   string   // root for /exec, /spawn (cwd), /get and /read; defaults to LogDir
 	ReadGlobs []string // allowlist of path globs readable via /read/ (and /logs/ alias)
@@ -105,6 +106,9 @@ func (s *Server) executable() (string, error) {
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/screenshot", s.handleScreenshot)
+	mux.HandleFunc("/click", s.handleClick)
+	mux.HandleFunc("/type", s.handleType)
+	mux.HandleFunc("/key", s.handleKey)
 	mux.HandleFunc("/read/", s.handleRead)
 	mux.HandleFunc("/logs/", s.handleRead) // backward-compatible alias
 	mux.HandleFunc("/exec", s.handleExec)
@@ -181,6 +185,84 @@ func (s *Server) handleScreenshot(w http.ResponseWriter, r *http.Request) {
 	s.logf("screenshot -> %d bytes", len(png))
 	w.Header().Set("Content-Type", "image/png")
 	_, _ = w.Write(png) // best-effort; client may have disconnected
+}
+
+// injectErr maps an Injector error to an HTTP response: a missing interactive
+// session (e.g. a session-0 service, or no user logged in) is 409, anything
+// else 500. Mirrors handleScreenshot's treatment of ErrNoInteractiveSession.
+func (s *Server) injectErr(w http.ResponseWriter, verb string, err error) {
+	s.logf("%s ERROR: %v", verb, err)
+	if errors.Is(err, ErrNoInteractiveSession) {
+		http.Error(w, err.Error(), http.StatusConflict)
+		return
+	}
+	http.Error(w, err.Error(), http.StatusInternalServerError)
+}
+
+// handleClick injects a mouse click at absolute screen pixel (?x, ?y) with the
+// given ?button (left|right|middle, default left); ?double=1 double-clicks.
+func (s *Server) handleClick(w http.ResponseWriter, r *http.Request) {
+	if !s.authed(w, r) {
+		return
+	}
+	q := r.URL.Query()
+	x, err := strconv.Atoi(q.Get("x"))
+	if err != nil {
+		http.Error(w, "missing or invalid x", http.StatusBadRequest)
+		return
+	}
+	y, err := strconv.Atoi(q.Get("y"))
+	if err != nil {
+		http.Error(w, "missing or invalid y", http.StatusBadRequest)
+		return
+	}
+	button := q.Get("button")
+	double, _ := strconv.ParseBool(q.Get("double"))
+	s.logf("click  > (%d,%d) button=%q double=%t", x, y, button, double)
+	if err := s.Injector.Click(x, y, button, double); err != nil {
+		s.injectErr(w, "click", err)
+		return
+	}
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	_, _ = fmt.Fprintf(w, "clicked (%d,%d)\n", x, y)
+}
+
+// handleType types the literal UTF-8 ?text as Unicode keystrokes.
+func (s *Server) handleType(w http.ResponseWriter, r *http.Request) {
+	if !s.authed(w, r) {
+		return
+	}
+	text := r.URL.Query().Get("text")
+	if text == "" {
+		http.Error(w, "missing text", http.StatusBadRequest)
+		return
+	}
+	s.logf("type   > %d chars", len([]rune(text)))
+	if err := s.Injector.Type(text); err != nil {
+		s.injectErr(w, "type", err)
+		return
+	}
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	_, _ = fmt.Fprintf(w, "typed %d chars\n", len([]rune(text)))
+}
+
+// handleKey presses the ?combo key combination (e.g. "Enter", "Ctrl+C").
+func (s *Server) handleKey(w http.ResponseWriter, r *http.Request) {
+	if !s.authed(w, r) {
+		return
+	}
+	combo := r.URL.Query().Get("combo")
+	if combo == "" {
+		http.Error(w, "missing combo", http.StatusBadRequest)
+		return
+	}
+	s.logf("key    > %s", combo)
+	if err := s.Injector.Key(combo); err != nil {
+		s.injectErr(w, "key", err)
+		return
+	}
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	_, _ = fmt.Fprintf(w, "pressed %s\n", combo)
 }
 
 // readMatches reports whether rel matches any configured read glob. With no

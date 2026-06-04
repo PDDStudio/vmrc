@@ -238,6 +238,7 @@ func serveAgent(ctx context.Context, cfg config.Config, local bool) error {
 	}
 	srv := &agent.Server{
 		Capturer:  agent.ScreenCapturer{},
+		Injector:  agent.SystemInjector{},
 		BaseDir:   cfg.BaseDir,
 		ReadGlobs: cfg.ReadGlobs,
 		Update: agent.UpdateConfig{

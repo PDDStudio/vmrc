@@ -5,6 +5,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 )
@@ -77,6 +78,79 @@ func TestPutPostsBody(t *testing.T) {
 	}
 	if got != "payload" {
 		t.Fatalf("body = %q", got)
+	}
+}
+
+func TestClickPostsCoordinates(t *testing.T) {
+	var method, path string
+	var q url.Values
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		method, path, q = r.Method, r.URL.Path, r.URL.Query()
+	}))
+	defer srv.Close()
+	if err := newClient(srv, "").Click(context.Background(), 120, 240, "right", true); err != nil {
+		t.Fatalf("Click err = %v", err)
+	}
+	if method != http.MethodPost || path != "/click" {
+		t.Fatalf("got %s %s, want POST /click", method, path)
+	}
+	if q.Get("x") != "120" || q.Get("y") != "240" || q.Get("button") != "right" || q.Get("double") != "1" {
+		t.Fatalf("query = %v", q)
+	}
+}
+
+func TestClickOmitsDefaults(t *testing.T) {
+	var q url.Values
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		q = r.URL.Query()
+	}))
+	defer srv.Close()
+	if err := newClient(srv, "").Click(context.Background(), 1, 2, "", false); err != nil {
+		t.Fatalf("Click err = %v", err)
+	}
+	if q.Has("button") || q.Has("double") {
+		t.Fatalf("default button/double should be omitted, got %v", q)
+	}
+}
+
+func TestTypePostsText(t *testing.T) {
+	var method string
+	var q url.Values
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		method, q = r.Method, r.URL.Query()
+	}))
+	defer srv.Close()
+	if err := newClient(srv, "").Type(context.Background(), "hello world"); err != nil {
+		t.Fatalf("Type err = %v", err)
+	}
+	if method != http.MethodPost || q.Get("text") != "hello world" {
+		t.Fatalf("got %s text=%q", method, q.Get("text"))
+	}
+}
+
+func TestKeyPostsCombo(t *testing.T) {
+	var method, path string
+	var q url.Values
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		method, path, q = r.Method, r.URL.Path, r.URL.Query()
+	}))
+	defer srv.Close()
+	if err := newClient(srv, "").Key(context.Background(), "Ctrl+C"); err != nil {
+		t.Fatalf("Key err = %v", err)
+	}
+	if method != http.MethodPost || path != "/key" || q.Get("combo") != "Ctrl+C" {
+		t.Fatalf("got %s %s combo=%q", method, path, q.Get("combo"))
+	}
+}
+
+func TestClickMapsNon2xxToError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "no interactive session", http.StatusConflict)
+	}))
+	defer srv.Close()
+	err := newClient(srv, "").Click(context.Background(), 1, 2, "left", false)
+	if err == nil || !strings.Contains(err.Error(), "409") {
+		t.Fatalf("err = %v, want 409", err)
 	}
 }
 
