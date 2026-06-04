@@ -65,7 +65,15 @@ func execAction(ctx context.Context, cmd *cli.Command) error {
 		cmdline = strings.Join(args[1:], " ")
 	}
 
-	results := host.FanoutExec(ctx, agents, func(a host.Agent) *host.Client { return clientFor(cmd, a) }, cmdline)
+	// On a fleet fan-out (--all) with no explicit --timeout, bound each agent so
+	// one reachable-but-hung node can't stall the whole command indefinitely.
+	// Single/explicit-target exec keeps the operator's value (0 = wait forever).
+	timeout := cmd.Duration("timeout")
+	if cmd.Bool("all") && timeout == 0 {
+		timeout = host.DefaultFanoutTimeout
+	}
+
+	results := host.FanoutExec(ctx, agents, func(a host.Agent) *host.Client { return clientFor(cmd, a) }, cmdline, timeout)
 	out, code := host.FormatExec(results, len(agents) > 1)
 	_, _ = fmt.Fprint(os.Stdout, out)
 	if len(agents) > 1 {

@@ -11,9 +11,9 @@ func TestSanitizeHostname(t *testing.T) {
 		in   string
 		want string
 	}{
-		{"plain", "REDACTED-HOST", "REDACTED-HOST"},
+		{"plain", "desktop-abc123", "desktop-abc123"},
 		{"uppercased", "WIN-BUILD01", "win-build01"},
-		{"dot-local suffix dropped", "REDACTED-HOST.local", "REDACTED-HOST"},
+		{"dot-local suffix dropped", "desktop-abc123.local", "desktop-abc123"},
 		{"fqdn keeps first label", "host.example.com", "host"},
 		{"underscore and space become dash", "my_host name", "my-host-name"},
 		{"leading/trailing junk trimmed", "--weird!!", "weird"},

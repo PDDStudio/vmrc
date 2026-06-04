@@ -1,6 +1,6 @@
 // Package winres carries the Windows application manifest for vmrc-agent.
 //
-// Why this package exists
+// # Why this package exists
 //
 // The agent embeds tsnet, which (via tailscale.com/net/tshttpproxy →
 // github.com/dblohm7/wingoes) reads the true OS version at runtime. Without an
@@ -10,7 +10,7 @@
 // the agent dies on start. winres.json carries the manifest; go-winres compiles
 // it into rsrc_windows_<arch>.syso in this directory.
 //
-// How it gets linked
+// # How it gets linked
 //
 // The Go toolchain only auto-links *.syso from the *main* package directory.
 // These .syso files live here in a subpackage, so cmd/vmrc-agent blank-imports
