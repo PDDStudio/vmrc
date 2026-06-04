@@ -95,6 +95,55 @@ func (c *Client) Screenshot(ctx context.Context) ([]byte, error) {
 	return io.ReadAll(resp.Body)
 }
 
+// Click injects a mouse click at absolute screen pixel (x,y) via POST /click.
+// button is "left", "right", or "middle" (empty means left); double issues a
+// double-click.
+func (c *Client) Click(ctx context.Context, x, y int, button string, double bool) error {
+	q := url.Values{}
+	q.Set("x", strconv.Itoa(x))
+	q.Set("y", strconv.Itoa(y))
+	if button != "" {
+		q.Set("button", button)
+	}
+	if double {
+		q.Set("double", "1")
+	}
+	return c.post(ctx, "/click", q)
+}
+
+// Type enters text as literal Unicode keystrokes via POST /type.
+func (c *Client) Type(ctx context.Context, text string) error {
+	q := url.Values{}
+	q.Set("text", text)
+	return c.post(ctx, "/type", q)
+}
+
+// Key presses a key combo (e.g. "Enter", "Ctrl+C") via POST /key.
+func (c *Client) Key(ctx context.Context, combo string) error {
+	q := url.Values{}
+	q.Set("combo", combo)
+	return c.post(ctx, "/key", q)
+}
+
+// post issues a POST to endpoint with q as the query string and no body,
+// treating any non-2xx reply as an error. Used by the fire-and-forget input
+// verbs whose response body carries nothing the caller needs.
+func (c *Client) post(ctx context.Context, endpoint string, q url.Values) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.url(endpoint, q), nil)
+	if err != nil {
+		return err
+	}
+	resp, err := c.do(req)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode/100 != 2 {
+		return errFromResponse(resp)
+	}
+	return nil
+}
+
 // Get fetches remotePath via /get. The caller must close the returned reader.
 func (c *Client) Get(ctx context.Context, remotePath string) (io.ReadCloser, error) {
 	q := url.Values{}
