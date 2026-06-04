@@ -39,22 +39,22 @@ builds:
 # name template is unambiguous: vmrc_<ver>_<os>_<arch> and vmrc-agent_<ver>_<os>_<arch>.
 archives:
   - id: vmrc
-    builds: [vmrc]
-    format: tar.gz
+    ids: [vmrc]
+    formats: [tar.gz]
     name_template: "{{ .Binary }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
     format_overrides:
       - goos: windows
-        format: zip
+        formats: [zip]
     files:
       - README.md
       - LICENSE*
   - id: vmrc-agent
-    builds: [vmrc-agent]
-    format: tar.gz
+    ids: [vmrc-agent]
+    formats: [tar.gz]
     name_template: "{{ .Binary }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
     format_overrides:
       - goos: windows
-        format: zip
+        formats: [zip]
     files:
       - README.md
       - LICENSE*
