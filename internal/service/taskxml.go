@@ -24,6 +24,10 @@ func xmlEscape(s string) string {
 // logged on regardless of when the task was registered, so a mid-session install
 // has a live keepalive immediately. ExecutionTimeLimit PT0S removes the default
 // 72-hour limit. Elevated maps to HighestAvailable, else LeastPrivilege.
+//
+// The keepalive only relaunches a crashed/killed agent; a deliberate stop must
+// override it, so winLauncher.Stop disables the task (killing both triggers)
+// before ending the instance, and Start re-enables it.
 func taskXML(s LaunchSpec) string {
 	runLevel := "LeastPrivilege"
 	if s.Elevated {

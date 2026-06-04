@@ -72,20 +72,6 @@ VM and `vmrc shot`/`vmrc exec` work — the logon task relaunched the agent, whi
 rejoined the tailnet from its saved `state/`. For unattended/headless VMs, enable
 **auto-logon** so the desktop session (and the agent) come up with no human.
 
-## 6. Migration from a legacy `--system` install (one-time)
-
-If the VM already has an older LocalSystem install (service registered,
-`C:\ProgramData\vmrc`), deliver the new binary and run:
-```powershell
-.\vmrc-agent.exe update
-```
-Run it via `vmrc exec` (a child process), **not** as the service body, so the
-migrator survives stopping the service. Expected result: the LocalSystem service
-is gone, a **logon task** now runs the agent from `%LOCALAPPDATA%\vmrc\bin`, and
-`vmrc ls` shows the **same node** (identity preserved via the copied `state/` — no
-re-enroll). Re-running `update` is a no-op (idempotent). While the repo is private,
-the release isn't fetchable, so migration runs locally off the delivered binary.
-
 ## Troubleshooting
 
 - **Agent starts then immediately stops:** read the log file. The agent tees all
