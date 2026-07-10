@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -34,6 +35,54 @@ func TestDownloadToWritesFileOnSuccess(t *testing.T) {
 	got, _ := os.ReadFile(local)
 	if string(got) != "PACKED" {
 		t.Fatalf("got %q", got)
+	}
+}
+
+func TestDownloadToNewFileMatchesOsCreatePerms(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX file modes are not meaningful on Windows")
+	}
+	dir := t.TempDir()
+	// os.Create is the ground truth for new-file perms (0666 & ~umask); a fresh
+	// download must match it rather than CreateTemp's 0600.
+	ref := filepath.Join(dir, "ref")
+	f, err := os.Create(ref)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = f.Close()
+	refFI, _ := os.Stat(ref)
+
+	local := filepath.Join(dir, "dl")
+	if _, err := downloadTo(local, strings.NewReader("x")); err != nil {
+		t.Fatal(err)
+	}
+	dlFI, _ := os.Stat(local)
+	if dlFI.Mode().Perm() != refFI.Mode().Perm() {
+		t.Fatalf("new download perm %v != os.Create perm %v", dlFI.Mode().Perm(), refFI.Mode().Perm())
+	}
+}
+
+func TestDownloadToPreservesExistingFileMode(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX file modes are not meaningful on Windows")
+	}
+	dir := t.TempDir()
+	local := filepath.Join(dir, "run.sh")
+	if err := os.WriteFile(local, []byte("old"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(local, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := downloadTo(local, strings.NewReader("new")); err != nil {
+		t.Fatal(err)
+	}
+	// Replacing an existing file must keep its mode (e.g. an executable stays +x),
+	// not drop to CreateTemp's 0600.
+	fi, _ := os.Stat(local)
+	if fi.Mode().Perm() != 0o755 {
+		t.Fatalf("replacing must preserve mode, got %v want 0755", fi.Mode().Perm())
 	}
 }
 

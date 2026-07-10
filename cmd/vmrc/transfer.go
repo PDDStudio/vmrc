@@ -78,6 +78,17 @@ func downloadTo(local string, src io.Reader) (int64, error) {
 		_ = os.Remove(tmpName)
 		return n, fmt.Errorf("close %s: %w", tmpName, err)
 	}
+	// Fix the temp file's mode before promoting it: CreateTemp makes it 0600, but
+	// replacing an existing file must keep that file's mode (e.g. an executable
+	// stays +x) and a new file should follow os.Create semantics (0666 & ~umask).
+	mode := os.FileMode(0o666) &^ processUmask()
+	if fi, err := os.Stat(local); err == nil {
+		mode = fi.Mode().Perm()
+	}
+	if err := os.Chmod(tmpName, mode); err != nil {
+		_ = os.Remove(tmpName)
+		return n, fmt.Errorf("chmod %s: %w", tmpName, err)
+	}
 	if err := os.Rename(tmpName, local); err != nil {
 		_ = os.Remove(tmpName)
 		return n, fmt.Errorf("rename to %s: %w", local, err)

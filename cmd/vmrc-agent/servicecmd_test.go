@@ -1,6 +1,7 @@
 package main
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -9,7 +10,7 @@ import (
 )
 
 func TestServiceArgs(t *testing.T) {
-	args := serviceArgs("/etc/vmrc/agent.json", "vmrc-agent")
+	args := serviceArgs("/etc/vmrc/agent.json", "vmrc-agent", config.ModeUser)
 	want := []string{"run", "--config", "/etc/vmrc/agent.json", "--service-name", "vmrc-agent"}
 	if len(args) != len(want) {
 		t.Fatalf("serviceArgs len = %d, want %d (%v)", len(args), len(want), args)
@@ -21,8 +22,31 @@ func TestServiceArgs(t *testing.T) {
 	}
 }
 
+func TestServiceArgsSystemModeIncludesSystemFlag(t *testing.T) {
+	args := serviceArgs("/etc/vmrc/agent.json", "vmrc-agent", config.ModeSystem)
+	found := false
+	for _, a := range args {
+		if a == "--system" {
+			found = true
+		}
+	}
+	if !found {
+		// Without it the boot-launched system service resolves user-mode defaults
+		// for any field the config file omits.
+		t.Fatalf("system install args must include --system: %v", args)
+	}
+}
+
+func TestServiceArgsUserModeOmitsSystemFlag(t *testing.T) {
+	for _, a := range serviceArgs("/x/agent.json", "vmrc-agent", config.ModeUser) {
+		if a == "--system" {
+			t.Fatalf("user install must not pass --system: run defaults to user mode")
+		}
+	}
+}
+
 func TestServiceArgsCustomName(t *testing.T) {
-	args := serviceArgs("/c/agent.json", "foo")
+	args := serviceArgs("/c/agent.json", "foo", config.ModeUser)
 	// the baked --service-name must match the registered name so the launched
 	// body's kardianos identity matches the installed service.
 	found := false
@@ -51,6 +75,29 @@ func TestManagedExecutablePointsAtBinDir(t *testing.T) {
 		if got != want {
 			t.Errorf("managedExecutable(%v) = %q, want managed bin path %q", mode, got, want)
 		}
+	}
+}
+
+func TestDoInstallRelocatesBinaryThenRegisters(t *testing.T) {
+	srcDir := t.TempDir()
+	self := filepath.Join(srcDir, binaryFileName())
+	if err := os.WriteFile(self, []byte("AGENT"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cfg := config.Config{BinDir: filepath.Join(t.TempDir(), "bin")}
+	c := &recordingController{}
+	if err := doInstall(cfg, self, c); err != nil {
+		t.Fatalf("doInstall: %v", err)
+	}
+	// The service is registered against the managed copy, so install must create
+	// it — a direct `install` (no prior `setup`) otherwise points at a missing
+	// binary.
+	managed := filepath.Join(cfg.BinDir, binaryFileName())
+	if b, err := os.ReadFile(managed); err != nil || string(b) != "AGENT" {
+		t.Fatalf("managed binary missing/wrong after install: %q err=%v", b, err)
+	}
+	if len(c.calls) != 1 || c.calls[0] != "install" {
+		t.Fatalf("want [install] after relocate, got %v", c.calls)
 	}
 }
 
