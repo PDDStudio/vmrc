@@ -1,6 +1,6 @@
 module github.com/pddstudio/vmrc
 
-go 1.26.3
+go 1.26.5
 
 require (
 	github.com/kardianos/service v1.2.4
