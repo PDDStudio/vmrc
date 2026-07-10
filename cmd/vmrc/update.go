@@ -119,6 +119,12 @@ func remoteUpdate(ctx context.Context, cmd *cli.Command, all bool, targets []str
 	check := cmd.Bool("check")
 	params := remoteParams(cmd)
 
+	// On a fleet update (--all) with no explicit --timeout, bound each agent so
+	// one reachable-but-hung node cannot stall the whole command forever (the
+	// default client has no HTTP timeout). Single/explicit targets keep the
+	// operator's value (0 = wait forever).
+	timeout := host.FanoutTimeout(all, cmd.Duration("timeout"))
+
 	type outcome struct {
 		name string
 		line string
@@ -130,9 +136,15 @@ func remoteUpdate(ctx context.Context, cmd *cli.Command, all bool, targets []str
 		wg.Add(1)
 		go func(i int, a host.Agent) {
 			defer wg.Done()
+			aCtx := ctx
+			if timeout > 0 {
+				var cancel context.CancelFunc
+				aCtx, cancel = context.WithTimeout(ctx, timeout)
+				defer cancel()
+			}
 			c := clientFor(cmd, a)
 			if check {
-				st, err := c.CheckUpdate(ctx, params)
+				st, err := c.CheckUpdate(aCtx, params)
 				if err != nil {
 					results[i] = outcome{a.Name, "", err}
 					return
@@ -144,7 +156,7 @@ func remoteUpdate(ctx context.Context, cmd *cli.Command, all bool, targets []str
 				results[i] = outcome{a.Name, line, nil}
 				return
 			}
-			res, err := c.Update(ctx, params)
+			res, err := c.Update(aCtx, params)
 			if err != nil {
 				results[i] = outcome{a.Name, "", err}
 				return

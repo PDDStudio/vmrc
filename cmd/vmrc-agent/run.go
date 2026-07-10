@@ -27,6 +27,7 @@ func runCommand() *cli.Command {
 		Flags: []cli.Flag{
 			configFlag(),
 			serviceNameFlag(),
+			systemFlag(),
 			&cli.StringFlag{Name: "base-dir", Usage: "root for exec cwd, get/put and read", Sources: cli.EnvVars("VMRC_BASE_DIR")},
 			&cli.IntFlag{Name: "listen-port", Usage: "HTTP listen port", Sources: cli.EnvVars("VMRC_LISTEN_PORT")},
 			&cli.StringSliceFlag{Name: "read-glob", Usage: "allowlist glob for /read (repeatable)"},
@@ -43,9 +44,9 @@ func runCommand() *cli.Command {
 }
 
 // configPath returns the effective config-file path for cmd: the --config flag
-// value if set, otherwise the OS default. The single source of truth for both
-// resolveConfig (which loads it) and buildManager (which bakes it into the
-// service launch args).
+// value if set, otherwise the OS (system) default. Used by buildManager (which
+// bakes it into the service launch args) and as runLogPath's last-resort
+// fallback; mode-aware callers use configPathForMode instead.
 func configPath(cmd *cli.Command) string {
 	if p := cmd.String("config"); p != "" {
 		return p
@@ -62,10 +63,27 @@ func configPathForMode(cmd *cli.Command, mode config.Mode) (string, error) {
 	return config.ConfigPathFor(mode)
 }
 
-// resolveConfig applies precedence flag → env → JSON file → default and reads
-// the env-only secrets. Used by both run and setup.
-func resolveConfig(cmd *cli.Command) (config.Config, error) {
-	return resolveConfigFrom(cmd, config.Defaults(), configPath(cmd), cmd.IsSet("config"))
+// resolveRunConfig resolves the agent config for `run`, mode-aware: with no
+// explicit --config it reads the default path for the selected mode (user unless
+// --system). A manual `run` must read the same config `setup` wrote, so it can't
+// assume the system path. Under the boot service the mode is irrelevant because
+// serviceArgs bakes an explicit --config.
+func resolveRunConfig(cmd *cli.Command) (config.Config, error) {
+	return resolveConfigForMode(cmd, resolveMode(cmd))
+}
+
+// runLogPath returns the log-file path for `run`: the explicit --log-file, else
+// one derived from the selected mode's config path so the log lands beside the
+// config setup wrote. Falls back to the system default only if the mode path
+// can't be resolved, keeping logging best-effort.
+func runLogPath(cmd *cli.Command) string {
+	if p := cmd.String("log-file"); p != "" {
+		return p
+	}
+	if cfgPath, err := configPathForMode(cmd, resolveMode(cmd)); err == nil {
+		return config.LogPath(cfgPath)
+	}
+	return config.LogPath(configPath(cmd))
 }
 
 // resolveConfigForMode is resolveConfig with mode-derived defaults (used by setup
@@ -189,16 +207,13 @@ func runAction(ctx context.Context, cmd *cli.Command) error {
 	// service/boot supervisor stderr goes nowhere, so without this a
 	// start-then-stop crash leaves no trace. A logging failure is non-fatal: warn
 	// and keep going on stderr only.
-	logPath := cmd.String("log-file")
-	if logPath == "" {
-		logPath = config.LogPath(configPath(cmd))
-	}
+	logPath := runLogPath(cmd)
 	banner := fmt.Sprintf("vmrc-agent %s (commit %s) starting: pid=%d args=%v", version, commit, os.Getpid(), redactArgs(os.Args[1:]))
 	if err := setupLogging(logPath, banner); err != nil {
 		log.Printf("WARNING: file logging to %q disabled: %v", logPath, err)
 	}
 
-	cfg, err := resolveConfig(cmd)
+	cfg, err := resolveRunConfig(cmd)
 	if err != nil {
 		return err
 	}

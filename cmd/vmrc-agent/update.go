@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/pddstudio/vmrc/internal/config"
 	"github.com/pddstudio/vmrc/internal/selfupdate"
 	"github.com/pddstudio/vmrc/internal/service"
 	"github.com/urfave/cli/v3"
@@ -33,11 +34,29 @@ func updateCommand() *cli.Command {
 	}
 }
 
+// updateTarget returns the binary path a self-update should replace: the managed
+// copy the boot service launches when a managed install is present, otherwise
+// the running executable. Running `update` from a different location (e.g.
+// ~/Downloads) must still replace the binary the service will relaunch, not the
+// operator's transient copy — otherwise the service restarts the unchanged old
+// binary and the update silently has no effect.
+func updateTarget(cmd *cli.Command, mode config.Mode, self string) string {
+	managed, err := managedExecutable(cmd, mode)
+	if err != nil {
+		return self
+	}
+	if _, err := os.Stat(managed); err != nil {
+		return self // no managed install; update the running binary
+	}
+	return managed
+}
+
 func updateAction(ctx context.Context, cmd *cli.Command) error {
-	exe, err := os.Executable()
+	self, err := os.Executable()
 	if err != nil {
 		return fmt.Errorf("resolving own path: %w", err)
 	}
+	exe := updateTarget(cmd, resolveMode(cmd), self)
 
 	t := selfupdate.Target{
 		Repo:       updateRepo,

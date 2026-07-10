@@ -3,8 +3,10 @@ package host
 import (
 	"context"
 	"fmt"
+	"net"
 	"net/netip"
 	"sort"
+	"strconv"
 	"strings"
 
 	"tailscale.com/ipn/ipnstate"
@@ -20,6 +22,18 @@ type Agent struct {
 	IPs     []netip.Addr // tailnet IPs (fallback addressing)
 	Online  bool
 	OS      string
+}
+
+// BaseURL builds the agent's HTTP base URL for scheme and port. It prefers the
+// MagicDNS name; when a peer has none it falls back to the first tailnet IP so
+// discovery still yields a reachable address rather than a malformed
+// "scheme://:port". IPv6 hosts are bracketed via net.JoinHostPort.
+func (a Agent) BaseURL(scheme string, port int) string {
+	host := a.DNSName
+	if host == "" && len(a.IPs) > 0 {
+		host = a.IPs[0].String()
+	}
+	return scheme + "://" + net.JoinHostPort(host, strconv.Itoa(port))
 }
 
 // statusSource is the minimal interface extracted from tailscale.com/client/local.Client

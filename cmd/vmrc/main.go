@@ -85,7 +85,7 @@ func discoverer() host.Discoverer {
 // clientFor builds a verb client for one agent from the global flags.
 func clientFor(cmd *cli.Command, a host.Agent) *host.Client {
 	return &host.Client{
-		BaseURL: fmt.Sprintf("%s://%s:%d", cmd.String("scheme"), a.DNSName, cmd.Int("port")),
+		BaseURL: a.BaseURL(cmd.String("scheme"), cmd.Int("port")),
 		Token:   cmd.String("token"),
 		HTTP:    &http.Client{Timeout: cmd.Duration("timeout")},
 	}

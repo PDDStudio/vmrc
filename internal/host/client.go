@@ -3,7 +3,6 @@ package host
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -73,7 +72,12 @@ func (c *Client) Exec(ctx context.Context, cmdline string) ([]byte, int, error) 
 	}
 	status := 0
 	if h := resp.Header.Get("X-Exit-Status"); h != "" {
-		status, _ = strconv.Atoi(h)
+		var perr error
+		if status, perr = strconv.Atoi(h); perr != nil {
+			// A present-but-unparseable header is a protocol violation; report it
+			// as -1 (unknown) rather than silently treating it as 0/success.
+			status = -1
+		}
 	}
 	return out, status, nil
 }
@@ -243,11 +247,13 @@ func (c *Client) Update(ctx context.Context, p UpdateParams) (UpdateResult, erro
 	}
 	var res UpdateResult
 	if err := json.NewDecoder(resp.Body).Decode(&res); err != nil {
-		if errors.Is(err, io.ErrUnexpectedEOF) || errors.Is(err, io.EOF) {
-			// Agent restarted before the body fully flushed; the update was accepted.
-			return UpdateResult{Restarting: true}, nil
-		}
-		return UpdateResult{}, err
+		// The 2xx status was already received, so the agent has accepted and
+		// applied the update and is exiting to restart. As it dies it may drop the
+		// connection before/mid body flush — a clean EOF, an unexpected EOF, or a
+		// connection reset (ECONNRESET) by the restarting peer all surface here as
+		// a decode error. Any post-2xx decode failure therefore means "restart
+		// initiated", not a failure.
+		return UpdateResult{Restarting: true}, nil
 	}
 	return res, nil
 }

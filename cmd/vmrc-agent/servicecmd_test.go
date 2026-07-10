@@ -54,6 +54,29 @@ func TestManagedExecutablePointsAtBinDir(t *testing.T) {
 	}
 }
 
+type recordingController struct {
+	calls  []string
+	status string
+}
+
+func (r *recordingController) Control(action string) error {
+	r.calls = append(r.calls, action)
+	return nil
+}
+func (r *recordingController) Status() (string, error) { return r.status, nil }
+
+func TestUninstallStopsRunningInstanceFirst(t *testing.T) {
+	c := &recordingController{}
+	if err := uninstallService(c); err != nil {
+		t.Fatalf("uninstallService: %v", err)
+	}
+	// A bare deregister leaves the live agent running until reboot; uninstall
+	// must stop the running instance first.
+	if len(c.calls) != 2 || c.calls[0] != "stop" || c.calls[1] != "uninstall" {
+		t.Fatalf("want [stop uninstall], got %v", c.calls)
+	}
+}
+
 func TestBuildControllerUserModeUsesLauncher(t *testing.T) {
 	cmd := &cli.Command{Flags: []cli.Flag{configFlag(), serviceNameFlag(), systemFlag()}}
 	c, err := buildController(cmd, config.ModeUser)

@@ -165,6 +165,16 @@ func installCommand() *cli.Command {
 	}
 }
 
+// uninstallService stops any running instance before deregistering the service,
+// so `uninstall` doesn't leave the agent process alive until the next reboot: a
+// bare deregister removes the boot entry but not the live process. The stop is
+// best-effort — a not-installed or already-stopped service still uninstalls
+// cleanly — while a running one is brought down first.
+func uninstallService(c controller) error {
+	_ = c.Control("stop")
+	return c.Control("uninstall")
+}
+
 func uninstallCommand() *cli.Command {
 	return &cli.Command{
 		Name:  "uninstall",
@@ -179,7 +189,7 @@ func uninstallCommand() *cli.Command {
 			if err != nil {
 				return err
 			}
-			if err := c.Control("uninstall"); err != nil {
+			if err := uninstallService(c); err != nil {
 				return err
 			}
 			fmt.Printf("uninstalled service %q\n", cmd.String("service-name"))
