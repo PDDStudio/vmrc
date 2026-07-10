@@ -26,6 +26,14 @@ func TestToKardianosConfigMapping(t *testing.T) {
 	}
 }
 
+func TestToKardianosConfigMapsExecutable(t *testing.T) {
+	const managed = "/opt/vmrc/bin/vmrc-agent"
+	k := toKardianosConfig(Config{Name: "vmrc-agent", Executable: managed})
+	if k.Executable != managed {
+		t.Errorf("Executable = %q, want %q", k.Executable, managed)
+	}
+}
+
 func TestNewBuildsManager(t *testing.T) {
 	m, err := New(Config{Name: "vmrc-agent", Run: func(context.Context) error { return nil }})
 	if err != nil {
@@ -64,6 +72,57 @@ func TestProgramStopReturnsRunError(t *testing.T) {
 	}
 	if err := p.Stop(nil); !errors.Is(err, wantErr) {
 		t.Fatalf("Stop returned %v, want %v", err, wantErr)
+	}
+}
+
+func TestProgramUnexpectedExitTriggersOnExit(t *testing.T) {
+	wantErr := errors.New("serve died")
+	got := make(chan error, 1)
+	p := &program{
+		run:    func(ctx context.Context) error { return wantErr },
+		onExit: func(err error) { got <- err },
+	}
+	if err := p.Start(nil); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	select {
+	case err := <-got:
+		if !errors.Is(err, wantErr) {
+			t.Fatalf("onExit got %v, want %v", err, wantErr)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("onExit was not called after run returned on its own")
+	}
+}
+
+func TestProgramStopDoesNotTriggerOnExit(t *testing.T) {
+	called := make(chan struct{}, 1)
+	p := &program{
+		run:    func(ctx context.Context) error { <-ctx.Done(); return nil },
+		onExit: func(err error) { called <- struct{}{} },
+	}
+	if err := p.Start(nil); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	if err := p.Stop(nil); err != nil {
+		t.Fatalf("Stop: %v", err)
+	}
+	select {
+	case <-called:
+		t.Fatal("onExit fired during a normal Stop-driven shutdown")
+	case <-time.After(200 * time.Millisecond):
+	}
+}
+
+func TestDefaultOnExitExitsNonZero(t *testing.T) {
+	old := osExit
+	got := make(chan int, 1)
+	osExit = func(code int) { got <- code }
+	defer func() { osExit = old }()
+
+	defaultOnExit(errors.New("boom"))
+	if code := <-got; code != 1 {
+		t.Fatalf("defaultOnExit exit code = %d, want 1", code)
 	}
 }
 

@@ -79,8 +79,98 @@ func compareVersions(a, b string) int {
 	case preB == "":
 		return -1
 	default:
-		return strings.Compare(preA, preB)
+		return comparePre(preA, preB)
 	}
+}
+
+// comparePre compares two prerelease strings (the part after '-') by SemVer §11
+// precedence: dot-separated identifiers compared left to right, a purely numeric
+// identifier ranking below an alphanumeric one, and — when the common prefix is
+// equal — the larger set of identifiers winning. Within an alphanumeric
+// identifier it uses natural (digit-aware) ordering so the project's glued
+// "rc9"/"rc10" tag style sorts numerically rather than lexically.
+func comparePre(a, b string) int {
+	as, bs := strings.Split(a, "."), strings.Split(b, ".")
+	for i := 0; i < len(as) && i < len(bs); i++ {
+		if c := comparePreIdent(as[i], bs[i]); c != 0 {
+			return c
+		}
+	}
+	switch {
+	case len(as) < len(bs):
+		return -1
+	case len(as) > len(bs):
+		return 1
+	}
+	return 0
+}
+
+// comparePreIdent compares one prerelease identifier.
+func comparePreIdent(a, b string) int {
+	an, aErr := strconv.Atoi(a)
+	bn, bErr := strconv.Atoi(b)
+	aNumeric, bNumeric := aErr == nil, bErr == nil
+	switch {
+	case aNumeric && bNumeric:
+		return cmpInt(an, bn)
+	case aNumeric: // numeric identifier ranks below alphanumeric
+		return -1
+	case bNumeric:
+		return 1
+	default:
+		return naturalCompare(a, b)
+	}
+}
+
+// naturalCompare orders two strings treating embedded digit runs as numbers, so
+// "rc9" < "rc10". Non-digit runs compare byte-wise.
+func naturalCompare(a, b string) int {
+	ia, ib := 0, 0
+	for ia < len(a) && ib < len(b) {
+		if isDigit(a[ia]) && isDigit(b[ib]) {
+			ja, jb := ia, ib
+			for ja < len(a) && isDigit(a[ja]) {
+				ja++
+			}
+			for jb < len(b) && isDigit(b[jb]) {
+				jb++
+			}
+			na, _ := strconv.Atoi(a[ia:ja])
+			nb, _ := strconv.Atoi(b[ib:jb])
+			if c := cmpInt(na, nb); c != 0 {
+				return c
+			}
+			ia, ib = ja, jb
+			continue
+		}
+		if a[ia] != b[ib] {
+			if a[ia] < b[ib] {
+				return -1
+			}
+			return 1
+		}
+		ia++
+		ib++
+	}
+	switch {
+	case ia < len(a):
+		return 1
+	case ib < len(b):
+		return -1
+	}
+	return 0
+}
+
+func isDigit(c byte) bool { return c >= '0' && c <= '9' }
+
+func cmpInt(a, b int) int {
+	switch {
+	case a < b:
+		return -1
+	case a > b:
+		return 1
+	}
+	return 0
 }
 
 // compareCore compares two dotted-decimal version cores.

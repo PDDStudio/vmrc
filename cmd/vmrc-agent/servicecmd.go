@@ -19,20 +19,39 @@ func serviceArgs(absConfigPath, serviceName string) []string {
 	return []string{"run", "--config", absConfigPath, "--service-name", serviceName}
 }
 
+// managedExecutable returns the absolute path of the relocated agent binary for
+// the given mode (the copy setup installs into <config dir>/bin). The boot
+// service must be registered against this path, not os.Executable() — otherwise
+// it points at wherever setup happened to run from (e.g. ~/Downloads), breaks if
+// that copy moves, and never picks up updates applied to the managed copy.
+func managedExecutable(cmd *cli.Command, mode config.Mode) (string, error) {
+	cfg, err := resolveConfigForMode(cmd, mode)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(cfg.BinDir, binaryFileName()), nil
+}
+
 // buildManager constructs a service.Manager whose launch arguments are
-// "run --config <abs config path> --service-name <name>". It reads only the
-// config *path* (to bake into the service Arguments); it does not load or
-// validate the config file. Used by the management commands and setup.
-func buildManager(cmd *cli.Command) (*service.Manager, error) {
+// "run --config <abs config path> --service-name <name>" and whose Executable is
+// the managed bin/ copy. It reads only the config *path* (to bake into the
+// service Arguments); it does not load or validate the config file. Used by the
+// management commands and setup.
+func buildManager(cmd *cli.Command, mode config.Mode) (*service.Manager, error) {
 	p := configPath(cmd)
 	abs, err := filepath.Abs(p)
 	if err != nil {
 		return nil, fmt.Errorf("resolving config path %q: %w", p, err)
 	}
+	exe, err := managedExecutable(cmd, mode)
+	if err != nil {
+		return nil, err
+	}
 	return service.New(service.Config{
 		Name:        cmd.String("service-name"),
 		DisplayName: serviceDisplayName,
 		Description: serviceDescription,
+		Executable:  exe,
 		Arguments:   serviceArgs(abs, cmd.String("service-name")),
 	})
 }
@@ -67,15 +86,11 @@ func (c launcherController) Status() (string, error) { return c.l.Status() }
 // for user mode (its spec points at the managed bin/ binary).
 func buildController(cmd *cli.Command, mode config.Mode) (controller, error) {
 	if mode == config.ModeSystem {
-		mgr, err := buildManager(cmd)
+		mgr, err := buildManager(cmd, mode)
 		if err != nil {
 			return nil, err
 		}
 		return managerController{mgr}, nil
-	}
-	cfg, err := resolveConfigForMode(cmd, mode)
-	if err != nil {
-		return nil, err
 	}
 	cfgPath, err := configPathForMode(cmd, mode)
 	if err != nil {
@@ -85,7 +100,10 @@ func buildController(cmd *cli.Command, mode config.Mode) (controller, error) {
 	if err != nil {
 		return nil, fmt.Errorf("resolving config path %q: %w", cfgPath, err)
 	}
-	exe := filepath.Join(cfg.BinDir, binaryFileName())
+	exe, err := managedExecutable(cmd, mode)
+	if err != nil {
+		return nil, err
+	}
 	user, err := currentUserName()
 	if err != nil {
 		return nil, err

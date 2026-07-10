@@ -1,6 +1,7 @@
 package main
 
 import (
+	"path/filepath"
 	"testing"
 
 	"github.com/pddstudio/vmrc/internal/config"
@@ -32,6 +33,24 @@ func TestServiceArgsCustomName(t *testing.T) {
 	}
 	if !found {
 		t.Errorf("serviceArgs did not bake --service-name foo: %v", args)
+	}
+}
+
+func TestManagedExecutablePointsAtBinDir(t *testing.T) {
+	cmd := &cli.Command{Flags: []cli.Flag{configFlag(), serviceNameFlag(), systemFlag()}}
+	for _, mode := range []config.Mode{config.ModeUser, config.ModeSystem} {
+		cfg, err := resolveConfigForMode(cmd, mode)
+		if err != nil {
+			t.Fatalf("resolveConfigForMode(%v): %v", mode, err)
+		}
+		want := filepath.Join(cfg.BinDir, binaryFileName())
+		got, err := managedExecutable(cmd, mode)
+		if err != nil {
+			t.Fatalf("managedExecutable(%v): %v", mode, err)
+		}
+		if got != want {
+			t.Errorf("managedExecutable(%v) = %q, want managed bin path %q", mode, got, want)
+		}
 	}
 }
 
