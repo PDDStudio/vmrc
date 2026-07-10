@@ -250,6 +250,7 @@ See [`vmrc.example.json`](./vmrc.example.json) for a template.
 | `hostname` | `VMRC_HOSTNAME` | tsnet node name on the tailnet; if empty/omitted, defaults to a DNS-sanitized form of the machine's OS hostname (falling back to `vmrc-agent`) |
 | `state_dir` | `VMRC_STATE_DIR` | tsnet state dir (must be absolute) |
 | `base_dir` | `VMRC_BASE_DIR` | root for `exec` cwd, `get`/`put`, `read` (must be absolute) |
+| `bin_dir` | — | dir holding the managed agent binary for self-update; defaults to a `bin/` beside the config/base dir |
 | `read_globs` | — | allowlist of readable path globs under `base_dir` |
 | `listen_port` | `VMRC_LISTEN_PORT` | HTTP listen port (default `47800`) |
 | `allowed_logins` | — | identity allowlist: Tailscale login names |

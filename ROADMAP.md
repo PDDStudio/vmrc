@@ -4,10 +4,6 @@ Phased plan for the implementation session. Each phase has a concrete done-check
 ordered so the thing works end-to-end as early as possible (skeleton → tunnel → service →
 auth → fleet → polish), then MCP last.
 
-The "lift from" source is the proven control agent recorded in the local, gitignored
-`LIFT_SOURCE.local.md` (the source files are also captured in the brainstorming session
-transcript). Port them; don't rewrite from scratch.
-
 ---
 
 ## P0 — Skeleton + lifted core
