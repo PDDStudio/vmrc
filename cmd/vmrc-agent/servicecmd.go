@@ -138,6 +138,19 @@ func preflightInstall(mode config.Mode, cfg config.Config) error {
 	return nil
 }
 
+// doInstall relocates the running binary into the managed bin/ dir — so the
+// service's registered executable (the managed copy) actually exists — and then
+// registers the boot service. A direct `install` must relocate too: without it,
+// buildController points the service at a managed path only `setup` would have
+// created, so a service registered by a bare `install` would launch a missing
+// binary.
+func doInstall(cfg config.Config, self string, c controller) error {
+	if _, err := relocateRunningBinary(self, cfg.BinDir); err != nil {
+		return fmt.Errorf("installing binary: %w", err)
+	}
+	return c.Control("install")
+}
+
 func installCommand() *cli.Command {
 	return &cli.Command{
 		Name:  "install",
@@ -152,11 +165,15 @@ func installCommand() *cli.Command {
 			if err := preflightInstall(mode, cfg); err != nil {
 				return err
 			}
+			self, err := os.Executable()
+			if err != nil {
+				return err
+			}
 			c, err := buildController(cmd, mode)
 			if err != nil {
 				return err
 			}
-			if err := c.Control("install"); err != nil {
+			if err := doInstall(cfg, self, c); err != nil {
 				return err
 			}
 			fmt.Printf("installed service %q\n", cmd.String("service-name"))
