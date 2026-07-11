@@ -124,6 +124,25 @@ func TestUninstallStopsRunningInstanceFirst(t *testing.T) {
 	}
 }
 
+func TestManagedExecutableIgnoresInvalidRuntimeConfig(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "agent.json")
+	binDir := filepath.Join(dir, "bin")
+	// A config with a valid bin_dir but an invalid runtime field (listen_port out
+	// of range). Control actions (status/stop/uninstall) only need the service
+	// path and must not fail validating runtime config.
+	writeAgentConfig(t, cfgPath, map[string]any{"bin_dir": binDir, "listen_port": 999999})
+	runWithConfig(t, cfgPath, func(cmd *cli.Command) {
+		got, err := managedExecutable(cmd, config.ModeUser)
+		if err != nil {
+			t.Fatalf("managedExecutable must not validate runtime config: %v", err)
+		}
+		if want := filepath.Join(binDir, binaryFileName()); got != want {
+			t.Fatalf("got %q want %q", got, want)
+		}
+	})
+}
+
 func TestBuildControllerUserModeUsesLauncher(t *testing.T) {
 	cmd := &cli.Command{Flags: []cli.Flag{configFlag(), serviceNameFlag(), systemFlag()}}
 	c, err := buildController(cmd, config.ModeUser)

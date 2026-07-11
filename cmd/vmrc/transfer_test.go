@@ -38,6 +38,25 @@ func TestDownloadToWritesFileOnSuccess(t *testing.T) {
 	}
 }
 
+func TestDownloadToOverwritesExistingFile(t *testing.T) {
+	// Runs on all platforms (no skip): os.Rename replaces an existing file on
+	// Windows too (MoveFileEx with MOVEFILE_REPLACE_EXISTING), so a get onto an
+	// existing local path must succeed and replace the content.
+	dir := t.TempDir()
+	local := filepath.Join(dir, "dest.bin")
+	if err := os.WriteFile(local, []byte("OLD-CONTENT-LONGER"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	n, err := downloadTo(local, strings.NewReader("NEW"))
+	if err != nil {
+		t.Fatalf("overwrite must succeed, got %v", err)
+	}
+	got, _ := os.ReadFile(local)
+	if string(got) != "NEW" || n != 3 {
+		t.Fatalf("content = %q (n=%d), want NEW", got, n)
+	}
+}
+
 func TestDownloadToNewFileMatchesOsCreatePerms(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("POSIX file modes are not meaningful on Windows")

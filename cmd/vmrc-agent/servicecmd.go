@@ -25,17 +25,42 @@ func serviceArgs(absConfigPath, serviceName string, mode config.Mode) []string {
 	return args
 }
 
+// managedBinDir resolves the managed bin/ directory for mode WITHOUT loading or
+// validating runtime config. Control actions (status/stop/uninstall) and
+// executable resolution only need the service path, and must not fail because
+// the config file is unreadable or carries an invalid runtime field (e.g. an
+// out-of-range listen_port) — that regressed the old system-manager path, which
+// never touched the config for control actions. It starts from the mode defaults
+// and overlays only bin_dir from the config file when it is present and parses.
+func managedBinDir(cmd *cli.Command, mode config.Mode) (string, error) {
+	base, err := config.DefaultsFor(mode)
+	if err != nil {
+		return "", err
+	}
+	binDir := base.BinDir
+	path, err := configPathForMode(cmd, mode)
+	if err != nil {
+		return "", err
+	}
+	if _, statErr := os.Stat(path); statErr == nil {
+		if cfg, lerr := config.LoadFile(base, path); lerr == nil && cfg.BinDir != "" {
+			binDir = cfg.BinDir
+		}
+	}
+	return binDir, nil
+}
+
 // managedExecutable returns the absolute path of the relocated agent binary for
 // the given mode (the copy setup installs into <config dir>/bin). The boot
 // service must be registered against this path, not os.Executable() — otherwise
 // it points at wherever setup happened to run from (e.g. ~/Downloads), breaks if
 // that copy moves, and never picks up updates applied to the managed copy.
 func managedExecutable(cmd *cli.Command, mode config.Mode) (string, error) {
-	cfg, err := resolveConfigForMode(cmd, mode)
+	binDir, err := managedBinDir(cmd, mode)
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(cfg.BinDir, binaryFileName()), nil
+	return filepath.Join(binDir, binaryFileName()), nil
 }
 
 // buildManager constructs a service.Manager whose launch arguments are
