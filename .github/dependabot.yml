@@ -1,0 +1,27 @@
+version: 2
+updates:
+  # Direct Go module deps only. tailscale.com pins its own transitive graph
+  # (notably a gVisor snapshot whose newer pseudo-versions don't build), so
+  # forcing indirect deps to latest breaks the agent build. Indirects move when
+  # the direct dep that owns them does.
+  - package-ecosystem: gomod
+    directory: /
+    schedule:
+      interval: weekly
+    allow:
+      - dependency-type: direct
+    groups:
+      go-minor-patch:
+        update-types: [minor, patch]
+    commit-message:
+      prefix: "chore(deps)"
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ["*"]
+    commit-message:
+      prefix: "ci(deps)"
