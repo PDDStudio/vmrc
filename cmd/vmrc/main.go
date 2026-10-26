@@ -31,11 +31,11 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	v, c, d := buildinfo.Resolve(version, commit, date)
+	resolveBuildStamp()
 	cmd := &cli.Command{
 		Name:    "vmrc",
 		Usage:   "drive a fleet of vmrc agents over the tailnet",
-		Version: fmt.Sprintf("%s (commit %s, built %s)", v, c, d),
+		Version: fmt.Sprintf("%s (commit %s, built %s)", version, commit, date),
 		Flags:   globalFlags(),
 		Commands: []*cli.Command{
 			lsCommand(),
@@ -57,6 +57,14 @@ func main() {
 	if err := cmd.Run(ctx, os.Args); err != nil {
 		log.Fatal(err)
 	}
+}
+
+// resolveBuildStamp folds the Go module build info into the package stamp
+// globals so every command — notably `update --self`, which gates on and prints
+// `version` — sees the same value `--version` reports (a `go install`ed binary
+// has version="dev" until build info is consulted).
+func resolveBuildStamp() {
+	version, commit, date = buildinfo.Resolve(version, commit, date)
 }
 
 func globalFlags() []cli.Flag {

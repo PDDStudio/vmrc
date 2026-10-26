@@ -32,6 +32,12 @@ func TestCompareVersionsAndIsNewer(t *testing.T) {
 		{"v0.1.10", "v0.1.2", 1},    // numeric, not lexical
 		{"v1.2.0", "v1.2.0-rc1", 1}, // release beats its prerelease
 		{"v1.2.0-rc2", "v1.2.0-rc1", 1},
+		{"v1.2.0-rc10", "v1.2.0-rc9", 1},        // numeric prerelease, not lexical ("rc10" < "rc9" lexically)
+		{"v1.2.0-rc.10", "v1.2.0-rc.9", 1},      // dot-separated numeric identifier compared numerically
+		{"v1.2.0-rc.2", "v1.2.0-rc.2", 0},       // equal prereleases
+		{"v1.2.0-alpha", "v1.2.0-alpha.1", -1},  // shorter set has lower precedence when prefix equal
+		{"v1.2.0-alpha.1", "v1.2.0-alpha.beta", -1}, // numeric identifier < alphanumeric identifier
+		{"v1.2.0-beta", "v1.2.0-alpha", 1},      // alphanumeric compared lexically
 		{"v1.0.0", "dev", 1},  // any release beats dev
 		{"dev", "v1.0.0", -1}, // dev is older than everything
 		{"dev", "dev", 0},

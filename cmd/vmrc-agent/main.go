@@ -42,11 +42,11 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	v, c, d := buildinfo.Resolve(version, commit, date)
+	resolveBuildStamp()
 	cmd := &cli.Command{
 		Name:    "vmrc-agent",
 		Usage:   "VM-side remote-control agent",
-		Version: fmt.Sprintf("%s (commit %s, built %s)", v, c, d),
+		Version: fmt.Sprintf("%s (commit %s, built %s)", version, commit, date),
 		Commands: []*cli.Command{
 			runCommand(),
 			setupCommand(),
@@ -62,6 +62,13 @@ func main() {
 	if err := cmd.Run(ctx, os.Args); err != nil {
 		log.Fatal(err)
 	}
+}
+
+// resolveBuildStamp folds the Go module build info into the package stamp
+// globals so every command — notably the /update handler and `update`, which
+// gate on and report `version` — sees the same value `--version` reports.
+func resolveBuildStamp() {
+	version, commit, date = buildinfo.Resolve(version, commit, date)
 }
 
 // configFlag is the shared --config flag used by every command.
