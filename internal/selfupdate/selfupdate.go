@@ -1,6 +1,7 @@
 // Package selfupdate checks GitHub Releases for a newer build of a vmrc binary,
-// downloads and verifies it against the release checksums, and atomically
-// replaces the running executable. It is a leaf utility: it imports nothing from
+// downloads it, verifies the release's ed25519-signed checksums.txt against the
+// public key(s) embedded in this binary and the archive against that checksum,
+// and atomically replaces the running executable. It is a leaf utility: it imports nothing from
 // the rest of vmrc. Both binaries (vmrc, vmrc-agent) build a Target from their
 // own ldflags version vars and call Check then Apply.
 //
@@ -13,6 +14,7 @@ package selfupdate
 import (
 	"bytes"
 	"context"
+	"crypto/ed25519"
 	"errors"
 	"fmt"
 	"net/http"
@@ -48,6 +50,13 @@ type Target struct {
 	HTTPClient *http.Client // optional; defaults to a client with a sane timeout
 	Token      string       // optional GITHUB_TOKEN (rate limits / private repo)
 	APIBase    string       // optional GitHub API root override (defaults to api.github.com)
+
+	// TrustedKeys overrides the release signing keys embedded in the binary
+	// (keys/*.pub). It exists for tests, which sign fake releases with keys
+	// generated at test time; production callers leave it nil. It is never
+	// wired to a flag, env var, or config key: there is no way to skip
+	// signature verification.
+	TrustedKeys []ed25519.PublicKey
 }
 
 func (t Target) goos() string {
@@ -73,13 +82,14 @@ func (t Target) client() *http.Client {
 
 // Release is a resolved candidate plus the chosen asset for a Target.
 type Release struct {
-	TagName     string // "v0.1.1"
-	Version     string // normalized, no leading v ("0.1.1")
-	Prerelease  bool
-	Notes       string // release body, for --check display
-	AssetName   string // "vmrc_v0.1.1_linux_amd64.tar.gz"
-	AssetURL    string // browser_download_url of the archive
-	ChecksumURL string // browser_download_url of checksums.txt
+	TagName      string // "v0.1.1"
+	Version      string // normalized, no leading v ("0.1.1")
+	Prerelease   bool
+	Notes        string // release body, for --check display
+	AssetName    string // "vmrc_v0.1.1_linux_amd64.tar.gz"
+	AssetURL     string // browser_download_url of the archive
+	ChecksumURL  string // browser_download_url of checksums.txt
+	SignatureURL string // browser_download_url of checksums.txt.sig
 }
 
 // Options modifies Check behavior.
@@ -118,7 +128,8 @@ func Check(ctx context.Context, t Target, opt Options) (Release, error) {
 }
 
 // resolveAssets picks the archive asset for this target plus the checksums.txt
-// asset. The exact goreleaser name is preferred; a prefix+suffix match is a
+// and checksums.txt.sig assets. A release without a signature is refused here
+// (ErrSignature) so stripping the .sig can never downgrade to unsigned updates. The exact goreleaser name is preferred; a prefix+suffix match is a
 // fallback robust to any leading-v discrepancy in the version token.
 func (t Target) resolveAssets(gh ghRelease) (Release, error) {
 	rel := Release{
@@ -137,8 +148,11 @@ func (t Target) resolveAssets(gh ghRelease) (Release, error) {
 		case rel.AssetURL == "" && strings.HasPrefix(a.Name, prefix) && strings.HasSuffix(a.Name, suffix):
 			rel.AssetName, rel.AssetURL = a.Name, a.DownloadURL
 		}
-		if a.Name == "checksums.txt" {
+		switch a.Name {
+		case "checksums.txt":
 			rel.ChecksumURL = a.DownloadURL
+		case SignatureAssetName:
+			rel.SignatureURL = a.DownloadURL
 		}
 	}
 	if rel.AssetURL == "" {
@@ -146,6 +160,10 @@ func (t Target) resolveAssets(gh ghRelease) (Release, error) {
 	}
 	if rel.ChecksumURL == "" {
 		return Release{}, fmt.Errorf("release %s has no checksums.txt; cannot verify download", gh.TagName)
+	}
+	if rel.SignatureURL == "" {
+		return Release{}, fmt.Errorf("%w: release %s has no %s (unsigned releases are refused)",
+			ErrSignature, gh.TagName, SignatureAssetName)
 	}
 	return rel, nil
 }
@@ -155,14 +173,16 @@ func (t Target) resolveAssets(gh ghRelease) (Release, error) {
 // pinned tag, so a source build is never silently overwritten by a release
 // binary. Both commands call it before Apply.
 func GateDevBuild(version string, force bool, pinnedTag string) error {
-	if isReleaseVersion(normalizeVersion(version)) || force || pinnedTag != "" {
+	if !isDevBuild(version) || force || pinnedTag != "" {
 		return nil
 	}
 	return fmt.Errorf("this is a dev build (%s); re-run with --force or --version <tag> to install a release", version)
 }
 
-// Apply downloads rel's asset, verifies its SHA-256 against checksums.txt BEFORE
-// extraction, extracts the binary, and atomically replaces the executable at
+// Apply downloads checksums.txt and checksums.txt.sig, verifies the signature
+// over the exact checksums.txt bytes against the trusted (embedded) release
+// keys, then downloads rel's asset and verifies its SHA-256 against the now
+// authenticated checksums.txt BEFORE extraction, extracts the binary, and atomically replaces the executable at
 // execPath (the caller passes os.Executable()). On any failure before the swap
 // the on-disk binary is untouched; a failed swap is rolled back by the
 // underlying replace.
@@ -170,9 +190,26 @@ func Apply(ctx context.Context, t Target, rel Release, execPath string) error {
 	if rel.AssetURL == "" || rel.ChecksumURL == "" {
 		return fmt.Errorf("selfupdate: incomplete release (call Check first)")
 	}
+	if rel.SignatureURL == "" {
+		return fmt.Errorf("%w: release %s has no %s (unsigned releases are refused)",
+			ErrSignature, rel.TagName, SignatureAssetName)
+	}
+	// Fail fast, before any download, when this build cannot verify anything.
+	keys, err := t.trustedKeys()
+	if err != nil {
+		return err
+	}
 	sumsBytes, err := t.download(ctx, rel.ChecksumURL, maxChecksumSize)
 	if err != nil {
 		return fmt.Errorf("downloading checksums: %w", err)
+	}
+	sigBytes, err := t.download(ctx, rel.SignatureURL, maxSignatureSize)
+	if err != nil {
+		return fmt.Errorf("%w: downloading %s: %v", ErrSignature, SignatureAssetName, err)
+	}
+	// Authenticate the exact checksums.txt bytes before trusting any entry.
+	if err := VerifyChecksumsSignature(sumsBytes, sigBytes, keys); err != nil {
+		return err
 	}
 	sums, err := parseChecksums(bytes.NewReader(sumsBytes))
 	if err != nil {

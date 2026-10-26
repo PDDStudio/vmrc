@@ -7,7 +7,9 @@
 package agent
 
 import (
+	"bytes"
 	"context"
+	"crypto/ed25519"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -16,17 +18,26 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/pddstudio/vmrc/internal/selfupdate"
 )
 
-// execTimeout bounds a single /exec command (packing/builds can be slow).
-const execTimeout = 10 * time.Minute
+// Defaults for Server.ExecTimeout and Server.MaxExecOutput.
+const (
+	execTimeoutDefault   = 10 * time.Minute // packing/builds can be slow
+	maxExecOutputDefault = 64 << 20         // combined stdout+stderr kept per /exec
+	// execPipeGrace bounds how long /exec keeps reading output after the shell
+	// exits or times out, so a backgrounded child holding stdout can't stall it.
+	execPipeGrace = 2 * time.Second
+)
 
 // ErrNoInteractiveSession is returned by a Capturer when no user is logged into
 // the interactive (console) session, so the desktop cannot be captured. The
@@ -43,13 +54,16 @@ type Capturer interface {
 // /exec+/spawn (cwd), /get and /read (file access), and an optional Logger
 // (defaults to the standard logger, which the agent points at the console).
 type Server struct {
-	Token     string
-	Capturer  Capturer
-	Injector  Injector
-	LogDir    string
-	BaseDir   string   // root for /exec, /spawn (cwd), /get and /read; defaults to LogDir
-	ReadGlobs []string // allowlist of path globs readable via /read/ (and /logs/ alias)
-	Logger    *log.Logger
+	Token    string
+	Capturer Capturer
+	Injector Injector
+	LogDir   string
+	BaseDir  string // root for /exec, /spawn (cwd), /get and /read; defaults to LogDir
+	// UploadsDir is the root /put writes into (the agent passes
+	// <base_dir>/uploads by default). Empty falls back to the base dir.
+	UploadsDir string
+	ReadGlobs  []string // allowlist of path globs readable via /read/ (and /logs/ alias)
+	Logger     *log.Logger
 	// Authorizer gates every request. If nil, a TokenAuthorizer derived from
 	// Token is used (P3 will inject an identity-based one here).
 	Authorizer Authorizer
@@ -62,6 +76,10 @@ type Server struct {
 	// restartDelayDefault).
 	ExitFunc     func(int)
 	RestartDelay time.Duration
+	// ExecTimeout bounds one /exec command (default execTimeoutDefault);
+	// MaxExecOutput caps the output it returns (default maxExecOutputDefault).
+	ExecTimeout   time.Duration
+	MaxExecOutput int
 	// execPathFn overrides os.Executable in tests so a POST /update applies to a
 	// temp file instead of the test binary. nil uses os.Executable.
 	execPathFn func() (string, error)
@@ -69,6 +87,9 @@ type Server struct {
 	// /spawn child has been waited on and reaped. Test-only observability seam;
 	// nil in production.
 	spawnReaped func(pid int)
+	// updating is set while a POST /update is downloading/applying, so a second
+	// concurrent apply can't race the first's binary rename.
+	updating atomic.Bool
 }
 
 // UpdateConfig describes the running binary so the /update handler can pick the
@@ -79,6 +100,11 @@ type UpdateConfig struct {
 	Version     string // current build version
 	GitHubToken string // optional; raises the GitHub API rate limit
 	APIBase     string // optional GitHub API root override (tests/proxies)
+
+	// trustedKeys overrides the release signing keys embedded in the binary.
+	// Tests only (unexported, never configurable): production always verifies
+	// against the embedded keys.
+	trustedKeys []ed25519.PublicKey
 }
 
 // restartDelayDefault is the flush window between writing the /update response
@@ -109,26 +135,31 @@ func (s *Server) executable() (string, error) {
 // Handler returns the HTTP mux for all endpoints.
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
-	mux.HandleFunc("/screenshot", s.handleScreenshot)
-	mux.HandleFunc("/click", s.handleClick)
-	mux.HandleFunc("/type", s.handleType)
-	mux.HandleFunc("/key", s.handleKey)
-	mux.HandleFunc("/read/", s.handleRead)
-	mux.HandleFunc("/logs/", s.handleRead) // backward-compatible alias
-	mux.HandleFunc("/exec", s.handleExec)
-	mux.HandleFunc("/spawn", s.handleSpawn)
-	mux.HandleFunc("/get", s.handleGet)
-	mux.HandleFunc("/put", s.handlePut)
-	mux.HandleFunc("/update", s.handleUpdate)
+	mux.HandleFunc("/screenshot", s.guard(readOnly, s.handleScreenshot))
+	mux.HandleFunc("/click", s.guard(sideEffects, s.handleClick))
+	mux.HandleFunc("/type", s.guard(sideEffects, s.handleType))
+	mux.HandleFunc("/key", s.guard(sideEffects, s.handleKey))
+	mux.HandleFunc("/read/", s.guard(readOnly, s.handleRead))
+	mux.HandleFunc("/logs/", s.guard(readOnly, s.handleRead)) // backward-compatible alias
+	mux.HandleFunc("/exec", s.guard(sideEffects, s.handleExec))
+	mux.HandleFunc("/spawn", s.guard(sideEffects, s.handleSpawn))
+	mux.HandleFunc("/get", s.guard(readOnly, s.handleGet))
+	mux.HandleFunc("/put", s.guard(upload, s.handlePut))
+	mux.HandleFunc("/update", s.guard(update, s.handleUpdate))
 	return mux
 }
 
-// safeJoin resolves rel against the base dir, refusing to escape it. It rejects
-// both lexical traversal (../) and symlink escape: a symlink inside base that
+// safeJoin resolves rel against the base dir, refusing to escape it.
+func (s *Server) safeJoin(rel string) (string, bool) {
+	return safeJoinUnder(s.base(), rel)
+}
+
+// safeJoinUnder resolves rel against root, refusing to escape it. It rejects
+// both lexical traversal (../) and symlink escape: a symlink inside root that
 // points outside would pass a plain prefix check, so the resolved paths are
 // compared as well.
-func (s *Server) safeJoin(rel string) (string, bool) {
-	base, err := filepath.Abs(s.base())
+func safeJoinUnder(root, rel string) (string, bool) {
+	base, err := filepath.Abs(root)
 	if err != nil {
 		return "", false
 	}
@@ -188,6 +219,14 @@ func (s *Server) base() string {
 		return s.BaseDir
 	}
 	return s.LogDir
+}
+
+// uploads returns the directory that bounds /put; falls back to the base dir.
+func (s *Server) uploads() string {
+	if s.UploadsDir != "" {
+		return s.UploadsDir
+	}
+	return s.base()
 }
 
 // authorizer returns the configured Authorizer, or a token-based default
@@ -306,10 +345,14 @@ func (s *Server) handleKey(w http.ResponseWriter, r *http.Request) {
 }
 
 // readMatches reports whether rel matches any configured read glob. With no
-// globs configured, nothing is readable (deny by default).
+// globs configured, nothing is readable (deny by default). rel comes from the
+// URL, so it's slash-separated on every OS: matching uses path.Match, where
+// "*" never crosses a "/". (filepath.Match on Windows only treats a backslash
+// as a separator, so "*.log" used to match "a/b/c.log" there.)
 func (s *Server) readMatches(rel string) bool {
+	rel = path.Clean("/" + rel)[1:]
 	for _, g := range s.ReadGlobs {
-		if ok, _ := filepath.Match(g, rel); ok {
+		if ok, _ := path.Match(filepath.ToSlash(g), rel); ok {
 			return true
 		}
 	}
@@ -375,25 +418,75 @@ func (s *Server) handleExec(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.logf("exec   > %s", cmdline)
-	ctx, cancel := context.WithTimeout(r.Context(), execTimeout)
+	timeout := s.ExecTimeout
+	if timeout <= 0 {
+		timeout = execTimeoutDefault
+	}
+	limit := s.MaxExecOutput
+	if limit <= 0 {
+		limit = maxExecOutputDefault
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), timeout)
 	defer cancel()
 	c := shellCommand(ctx, cmdline)
 	s.setWorkdir(c)
+	killTreeOnCancel(c)
+	c.WaitDelay = execPipeGrace
+	out := &cappedBuffer{limit: limit}
+	c.Stdout, c.Stderr = out, out
 	start := time.Now()
-	out, err := c.CombinedOutput()
+	err := c.Run()
 	status := 0
-	if err != nil {
-		if ee, ok := err.(*exec.ExitError); ok {
-			status = ee.ExitCode()
-		} else {
-			status = -1 // failed to start / timed out
-			out = append(out, []byte("\n[exec error] "+err.Error())...)
-		}
+	var ee *exec.ExitError
+	switch {
+	case ctx.Err() != nil:
+		status = -1
+		out.note("\n[exec error] " + ctx.Err().Error() + " (process tree killed)")
+	case errors.As(err, &ee):
+		status = ee.ExitCode()
+	case errors.Is(err, exec.ErrWaitDelay):
+		// The shell exited; a child it backgrounded still held the output pipe.
+		status = c.ProcessState.ExitCode()
+	case err != nil:
+		status = -1 // failed to start
+		out.note("\n[exec error] " + err.Error())
 	}
-	s.logf("exec   < exit=%d (%s, %d bytes): %s", status, time.Since(start).Round(time.Millisecond), len(out), cmdline)
+	if out.truncated {
+		w.Header().Set("X-Output-Truncated", "true")
+	}
+	s.logf("exec   < exit=%d (%s, %d bytes): %s", status, time.Since(start).Round(time.Millisecond), out.buf.Len(), cmdline)
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.Header().Set("X-Exit-Status", strconv.Itoa(status))
-	_, _ = w.Write(out)
+	_, _ = w.Write(out.buf.Bytes())
+}
+
+// cappedBuffer keeps the first limit bytes written and discards the rest (while
+// still accepting them, so the command never blocks on a full pipe).
+type cappedBuffer struct {
+	mu        sync.Mutex
+	buf       bytes.Buffer
+	limit     int
+	truncated bool
+}
+
+func (b *cappedBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if room := b.limit - b.buf.Len(); room < len(p) {
+		b.truncated = true
+		if room > 0 {
+			b.buf.Write(p[:room])
+		}
+		return len(p), nil
+	}
+	return b.buf.Write(p)
+}
+
+// note appends an agent-generated message regardless of the cap.
+func (b *cappedBuffer) note(msg string) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.buf.WriteString(msg)
 }
 
 // handleSpawn launches ?cmd=... detached in the base dir (fire-and-forget) and
@@ -461,14 +554,13 @@ func (s *Server) handleGet(w http.ResponseWriter, r *http.Request) {
 	http.ServeFile(w, r, full)
 }
 
-// handlePut writes the request body to ?path=<relative> within the base dir,
-// creating parent directories. Upload counterpart to /get. POST/PUT only.
+// handlePut writes the request body to ?path=<relative> within the uploads dir
+// (UploadsDir; falls back to the base dir), creating parent directories. With
+// the default layout the upload is then visible to /get, /exec and /spawn as
+// uploads/<path> relative to the base dir. Upload counterpart to /get. POST/PUT
+// only.
 func (s *Server) handlePut(w http.ResponseWriter, r *http.Request) {
 	if !s.authed(w, r) {
-		return
-	}
-	if r.Method != http.MethodPost && r.Method != http.MethodPut {
-		http.Error(w, "use POST or PUT", http.StatusMethodNotAllowed)
 		return
 	}
 	rel := r.URL.Query().Get("path")
@@ -476,31 +568,70 @@ func (s *Server) handlePut(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "missing path", http.StatusBadRequest)
 		return
 	}
-	full, ok := s.safeJoin(rel)
+	root := s.uploads()
+	// Self-heal a removed uploads dir: safeJoinUnder resolves the root, so it
+	// must exist before the containment check.
+	if s.UploadsDir != "" {
+		if err := os.MkdirAll(root, 0o750); err != nil {
+			s.logf("put    ERROR creating uploads dir %s: %v", root, err)
+			http.Error(w, "uploads dir unavailable", http.StatusInternalServerError)
+			return
+		}
+	}
+	full, ok := safeJoinUnder(root, rel)
 	if !ok {
-		s.logf("put    DENIED %q (outside base)", rel)
+		s.logf("put    DENIED %q (outside uploads dir)", rel)
 		http.Error(w, "forbidden path", http.StatusForbidden)
 		return
 	}
-	if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	f, err := os.Create(full)
+	// Write to a temp file beside the target and rename it into place only once
+	// the whole body arrived, so a dropped transfer never truncates or corrupts
+	// an existing file (the CLI's get side does the same).
+	f, err := createTempWithParents(full)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	tmp := f.Name()
 	n, err := io.Copy(f, r.Body)
-	cerr := f.Close()
-	if err != nil || cerr != nil {
-		s.logf("put    ERROR %s: %v %v", rel, err, cerr)
+	if cerr := f.Close(); err == nil {
+		err = cerr
+	}
+	if err == nil {
+		err = os.Chmod(tmp, 0o644) // CreateTemp makes it 0600; keep os.Create's mode
+	}
+	if err == nil {
+		err = os.Rename(tmp, full)
+	}
+	if err != nil {
+		_ = os.Remove(tmp)
+		s.logf("put    ERROR %s: %v", rel, err)
 		http.Error(w, "write failed", http.StatusInternalServerError)
 		return
 	}
 	s.logf("put    <- %s (%d bytes)", rel, n)
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	_, _ = fmt.Fprintf(w, "wrote %d bytes to %s\n", n, rel)
+}
+
+// createTempWithParents creates a temp file next to full (same directory, so
+// the final rename is atomic), making the parent directories first. If the
+// parent vanishes in between — the retention sweeper may prune a directory it
+// just emptied — it retries once.
+func createTempWithParents(full string) (*os.File, error) {
+	dir, name := filepath.Split(full)
+	var f *os.File
+	var err error
+	for attempt := 0; attempt < 2; attempt++ {
+		if err = os.MkdirAll(dir, 0o755); err != nil {
+			return nil, err
+		}
+		f, err = os.CreateTemp(dir, "."+name+".vmrc-put-*")
+		if err == nil || !errors.Is(err, os.ErrNotExist) {
+			return f, err
+		}
+	}
+	return nil, err
 }
 
 // updateStatus is the JSON reply to GET /update?check=1.
@@ -540,12 +671,24 @@ func (s *Server) handleUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	q := r.URL.Query()
+	if r.Method == http.MethodGet && q.Get("check") == "" {
+		http.Error(w, "use GET ?check=1 or POST", http.StatusBadRequest)
+		return
+	}
+	if r.Method == http.MethodPost {
+		if !s.updating.CompareAndSwap(false, true) {
+			http.Error(w, "an update is already in progress", http.StatusConflict)
+			return
+		}
+		defer s.updating.Store(false)
+	}
 	t := selfupdate.Target{
-		Repo:       s.Update.Repo,
-		BinaryName: s.Update.BinaryName,
-		Version:    s.Update.Version,
-		Token:      s.Update.GitHubToken,
-		APIBase:    s.Update.APIBase,
+		Repo:        s.Update.Repo,
+		BinaryName:  s.Update.BinaryName,
+		Version:     s.Update.Version,
+		Token:       s.Update.GitHubToken,
+		APIBase:     s.Update.APIBase,
+		TrustedKeys: s.Update.trustedKeys,
 	}
 	opt := selfupdate.Options{PinnedTag: q.Get("version"), AllowPrerelease: q.Get("pre") != ""}
 
@@ -567,11 +710,6 @@ func (s *Server) handleUpdate(w http.ResponseWriter, r *http.Request) {
 		s.writeJSON(w, st)
 		return
 	}
-	if r.Method != http.MethodPost {
-		http.Error(w, "use GET ?check=1 or POST", http.StatusMethodNotAllowed)
-		return
-	}
-
 	// POST: apply.
 	if upToDate {
 		s.writeJSON(w, updateResult{Old: s.Update.Version, New: s.Update.Version, Restarting: false})
@@ -579,6 +717,13 @@ func (s *Server) handleUpdate(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := selfupdate.GateDevBuild(s.Update.Version, q.Get("force") != "", q.Get("version")); err != nil {
 		http.Error(w, err.Error(), http.StatusForbidden)
+		return
+	}
+	// A pinned older tag is how a caller would roll the fleet back onto a
+	// release with a known bug, so it takes an explicit downgrade=1.
+	if selfupdate.IsDowngrade(rel.TagName, s.Update.Version) && q.Get("downgrade") == "" {
+		s.logf("update DENIED downgrade %s -> %s (no downgrade=1)", s.Update.Version, rel.TagName)
+		http.Error(w, fmt.Sprintf("refusing to downgrade %s -> %s without downgrade=1", s.Update.Version, rel.TagName), http.StatusConflict)
 		return
 	}
 	exe, err := s.executable()

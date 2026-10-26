@@ -110,18 +110,34 @@ remains, and a fresh clone builds and runs per the README.
 
 ---
 
-## Backlog — hardening follow-ups
+## Hardening: done
 
-- **Signed self-update (deferred from the 2026-06-04 audit).** `selfupdate.Apply` verifies the
-  archive's SHA-256 against `checksums.txt` from the *same* release, which catches transport
-  corruption but not a compromised GitHub release, token, or maintainer account that publishes a
-  malicious archive plus a matching checksum. For a remote-control agent, add detached signature
-  verification with a public key pinned in the binary, verified before replacement.
-  - Proposed design: ed25519 (stdlib `crypto/ed25519`, no new dep); goreleaser signs `checksums.txt`
-    (or each archive) with a private key held only in CI secrets; the binary embeds the matching
-    public key and rejects an update whose signature does not verify. Requires a maintainer decision
-    on key generation/custody and a release-pipeline change, so it is tracked here rather than
-    implemented ad hoc.
+- **Signed self-update (from the 2026-06-04 audit).** Before this, `selfupdate.Apply` checked the
+  archive's SHA-256 against `checksums.txt` from the *same* release. That catches transport
+  corruption, but not a compromised GitHub release, token, or maintainer account that publishes a
+  malicious archive with a matching checksum. Now:
+  - The release pipeline signs `checksums.txt` with ed25519 (stdlib `crypto/ed25519`, no new
+    dependency) and publishes `checksums.txt.sig`. goreleaser's `signs:` step runs
+    `go run ./tools/releasesign sign`. The private key exists only as the
+    `VMRC_RELEASE_SIGNING_KEY` CI secret. `release.yml` stops before tagging when that secret is
+    missing or doesn't match a committed public key.
+  - Both binaries embed the trusted public keys from `internal/selfupdate/keys/*.pub`. Before any
+    checksum is used, `Apply` verifies the signature over the exact `checksums.txt` bytes. All
+    three update paths go through `Apply`: `vmrc update --self`, `vmrc-agent update` and the
+    agent's `/update`. Verification fails closed (`selfupdate.ErrSignature`) in four cases: the
+    `.sig` asset is missing, the signature is malformed, the signing key isn't trusted, or the
+    build has no key embedded. There is no bypass flag.
+  - You can rotate keys: every `.pub` file is trusted, and the signature names its key id. The
+    maintainer steps are in CONTRIBUTING.md, section "Release signing key".
+
+## Backlog: hardening follow-ups
+
+- **Install scripts don't check the signature yet.** `scripts/install.sh` and `install.ps1` only
+  check SHA-256 against `checksums.txt`, so the *first* install still trusts the GitHub release.
+  Every self-update after that is signature-verified. Closing this gap means verifying ed25519 in
+  POSIX shell and PowerShell (or shipping a small verifier), and that tooling choice needs the
+  maintainer's decision. Until then, `go run ./tools/releasesign verify -in checksums.txt -sig
+  checksums.txt.sig` lets you check a release by hand from a clone.
 
 ---
 

@@ -9,6 +9,8 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+
+	"github.com/pddstudio/vmrc/internal/protocol"
 )
 
 // Client is a per-agent HTTP verb client. BaseURL is like
@@ -27,8 +29,11 @@ func (c *Client) httpClient() *http.Client {
 	return http.DefaultClient
 }
 
-// do sets the bearer token (when configured) and dispatches the request.
+// do marks the request as coming from the vmrc client (the agent refuses
+// requests without protocol.ClientHeader, which is its CSRF defense), sets the
+// bearer token when configured, and dispatches the request.
 func (c *Client) do(req *http.Request) (*http.Response, error) {
+	req.Header.Set(protocol.ClientHeader, "vmrc")
 	if c.Token != "" {
 		req.Header.Set("Authorization", "Bearer "+c.Token)
 	}
@@ -54,7 +59,7 @@ func errFromResponse(resp *http.Response) error {
 func (c *Client) Exec(ctx context.Context, cmdline string) ([]byte, int, error) {
 	q := url.Values{}
 	q.Set("cmd", cmdline)
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.url("/exec", q), nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.url("/exec", q), nil)
 	if err != nil {
 		return nil, -1, err
 	}
@@ -170,9 +175,10 @@ func (c *Client) Get(ctx context.Context, remotePath string) (io.ReadCloser, err
 // UpdateParams are the optional self-update knobs forwarded to an agent's
 // /update endpoint as query parameters.
 type UpdateParams struct {
-	Version string // pin a release tag
-	Pre     bool   // consider prereleases
-	Force   bool   // allow updating a dev build
+	Version   string // pin a release tag
+	Pre       bool   // consider prereleases
+	Force     bool   // allow updating a dev build
+	Downgrade bool   // allow a pinned Version older than the agent's
 }
 
 func (p UpdateParams) apply(q url.Values) {
@@ -184,6 +190,9 @@ func (p UpdateParams) apply(q url.Values) {
 	}
 	if p.Force {
 		q.Set("force", "1")
+	}
+	if p.Downgrade {
+		q.Set("downgrade", "1")
 	}
 }
 

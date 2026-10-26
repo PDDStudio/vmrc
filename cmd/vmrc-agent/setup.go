@@ -17,7 +17,7 @@ func setupCommand() *cli.Command {
 	return &cli.Command{
 		Name:  "setup",
 		Usage: "one-click: write config, create dirs, enroll on the tailnet, install + start the boot service",
-		Flags: []cli.Flag{
+		Flags: append([]cli.Flag{
 			configFlag(),
 			serviceNameFlag(),
 			systemFlag(),
@@ -27,9 +27,10 @@ func setupCommand() *cli.Command {
 			&cli.StringSliceFlag{Name: "allow-login", Usage: "identity allowlist: Tailscale login name (repeatable)"},
 			&cli.StringSliceFlag{Name: "allow-tag", Usage: "identity allowlist: ACL tag, e.g. tag:prod (repeatable)"},
 			&cli.StringFlag{Name: "token", Usage: "shared-token fallback (prefer the VMRC_TOKEN env var)", Sources: cli.EnvVars("VMRC_TOKEN")},
+			&cli.StringFlag{Name: "token-file", Usage: "file holding the shared token (chmod 600); how a service gets a token", Sources: cli.EnvVars("VMRC_TOKEN_FILE")},
 			&cli.StringFlag{Name: "hostname", Usage: "tsnet node name on the tailnet", Sources: cli.EnvVars("VMRC_HOSTNAME")},
 			&cli.StringFlag{Name: "state-dir", Usage: "tsnet state directory", Sources: cli.EnvVars("VMRC_STATE_DIR")},
-		},
+		}, retentionFlags()...),
 		Action: setupAction,
 	}
 }
@@ -99,6 +100,18 @@ func enrollIfNeeded(ctx context.Context, cfg config.Config) error {
 	return nil
 }
 
+// checkSetupAuth refuses to install an agent that would deny every request.
+// Only what the installed service will see counts: the allowlists and
+// token_file persist in the config, but a VMRC_TOKEN / --token given to setup
+// does not (secrets never go into the file).
+func checkSetupAuth(cfg config.Config) error {
+	if len(cfg.AllowedLogins) > 0 || len(cfg.AllowedTags) > 0 || cfg.TokenFile != "" {
+		return nil
+	}
+	return fmt.Errorf("refusing to set up an agent that would deny every request: pass --allow-login <you@example.com> " +
+		"(your Tailscale login), --allow-tag <tag:...>, or --token-file <path> (a VMRC_TOKEN given to setup is not persisted for the service)")
+}
+
 func setupAction(ctx context.Context, cmd *cli.Command) error {
 	mode := resolveMode(cmd)
 
@@ -113,6 +126,9 @@ func setupAction(ctx context.Context, cmd *cli.Command) error {
 		return err
 	}
 	if err := config.RequireAbsPaths(cfg); err != nil {
+		return err
+	}
+	if err := checkSetupAuth(cfg); err != nil {
 		return err
 	}
 
@@ -135,7 +151,7 @@ func setupAction(ctx context.Context, cmd *cli.Command) error {
 	if err := os.MkdirAll(cfg.BinDir, 0o755); err != nil {
 		return fmt.Errorf("create bin dir: %w", err)
 	}
-	fmt.Printf("ensured dirs: state=%s base=%s bin=%s\n", cfg.StateDir, cfg.BaseDir, cfg.BinDir)
+	fmt.Printf("ensured dirs: state=%s base=%s uploads=%s bin=%s\n", cfg.StateDir, cfg.BaseDir, cfg.EffectiveUploadsDir(), cfg.BinDir)
 
 	self, err := os.Executable()
 	if err != nil {

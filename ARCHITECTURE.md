@@ -39,7 +39,7 @@ Lift the control agent's `server.go` into `internal/agent/`. Endpoint contract:
 | `/exec` | GET | `cmd` | stdout (`text/plain`) + `X-Exit-Status` header | synchronous; default 10-min timeout via `context.WithTimeout` |
 | `/spawn` | GET | `cmd` | PID (`text/plain`) | detached, no timeout |
 | `/get` | GET | `path` | file bytes | `safeJoin` traversal guard, rooted at base dir |
-| `/put` | POST/PUT | `path`, body | confirmation | `safeJoin`; 405 on GET |
+| `/put` | POST/PUT | `path`, body | confirmation | `safeJoin` rooted at `uploads_dir` (default `<base_dir>/uploads`); 405 on GET |
 
 Status codes carried over: `400` missing param, `403` bad token / path escape, `405` wrong
 method, `500` exec/io error. Keep `safeJoin()` and the per-request console logging verbatim —
@@ -130,7 +130,10 @@ A small config file (e.g. `vmrc.yaml`/`vmrc.json`) + env overrides:
 | `hostname` | tsnet node name |
 | `authkey` | tailnet auth key (prefer `TS_AUTHKEY` env; never commit) |
 | `state_dir` | tsnet state dir |
-| `base_dir` | root for `exec` cwd, `get`/`put`, `read` |
+| `base_dir` | root for `exec` cwd, `get`, `read` |
+| `uploads_dir` | where `put` writes (default `<base_dir>/uploads`) |
+| `upload_retention` / `retention_sweep_interval` | delete uploads older than N (default `168h`, swept every `1h`; `0` disables) |
+| `log_max_size_mb` / `log_max_backups` | size-based agent log rotation (default 10 MB, 3 backups; `0` MB disables) |
 | `read_globs` | allowlist of readable paths (replaces hardcoded log list) |
 | `token` | optional shared-token fallback (prefer empty → identity-only) |
 | `listen_port` | default `47800` |

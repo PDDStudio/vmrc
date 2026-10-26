@@ -66,7 +66,7 @@ vmrc shot win1 -o /tmp/win1.png        # confirm
 | Type literal text | `vmrc type <vm> "<text>"` |
 | Press a key / combo | `vmrc key <vm> "<combo>"` (e.g. `Enter`, `Tab`, `Esc`, `Ctrl+C`, `Alt+F4`) |
 | Download a file | `vmrc get <vm>:<remote-path> <local-path>` |
-| Upload a file | `vmrc put <local-path> <vm>:<remote-path>` |
+| Upload a file | `vmrc put <local-path> <vm>:<remote-path>` (lands in the agent's uploads dir; `exec` sees it at `uploads/<remote-path>`; auto-deleted after the retention, default 7 days) |
 
 Notes:
 - With `--all` you MUST use the `--all -- <cmd>` form (the `--` separates flags

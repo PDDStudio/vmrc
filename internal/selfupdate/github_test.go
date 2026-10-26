@@ -2,6 +2,7 @@ package selfupdate
 
 import (
 	"context"
+	"crypto/ed25519"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -24,6 +25,14 @@ type fakeGitHub struct {
 	checksums  string // checksums.txt body (may be empty to omit the asset)
 	omitAsset  bool   // serve a release whose assets lack the target archive
 	notFound   bool   // /releases/latest returns 404
+
+	// Release signing. newFakeGitHub generates signKey (and trusts its public
+	// half via Target.TrustedKeys) unless one is set. The checksums.txt.sig body
+	// is computed at serve time over the CURRENT checksums, so tests that swap
+	// checksums still get a valid signature unless they set sig explicitly.
+	signKey ed25519.PrivateKey
+	sig     []byte // fixed checksums.txt.sig body; nil = sign current checksums
+	omitSig bool   // serve a release without a checksums.txt.sig asset
 }
 
 // newFakeGitHub builds the server for binary "vmrc" on linux/amd64.
@@ -39,6 +48,10 @@ func newFakeGitHub(t *testing.T, f *fakeGitHub) Target {
 		f.checksums = fmt.Sprintf("%s  %s\n", hex.EncodeToString(sum[:]), f.assetName)
 	}
 
+	if f.signKey == nil {
+		_, f.signKey = genKey(t)
+	}
+
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		switch {
@@ -52,6 +65,12 @@ func newFakeGitHub(t *testing.T, f *fakeGitHub) Target {
 			writeJSON(w, f.release())
 		case strings.HasSuffix(r.URL.Path, "/releases"):
 			writeJSON(w, []ghRelease{f.release()})
+		case strings.HasPrefix(r.URL.Path, "/dl/checksums.txt.sig"):
+			if f.sig != nil {
+				_, _ = w.Write(f.sig)
+				return
+			}
+			_, _ = w.Write(SignChecksums(f.signKey, []byte(f.checksums)))
 		case strings.HasPrefix(r.URL.Path, "/dl/checksums.txt"):
 			_, _ = w.Write([]byte(f.checksums))
 		case strings.HasPrefix(r.URL.Path, "/dl/"):
@@ -64,13 +83,14 @@ func newFakeGitHub(t *testing.T, f *fakeGitHub) Target {
 	t.Cleanup(f.srv.Close)
 
 	return Target{
-		Repo:       "o/r",
-		BinaryName: "vmrc",
-		Version:    "v0.1.0",
-		GOOS:       "linux",
-		GOARCH:     "amd64",
-		HTTPClient: f.srv.Client(),
-		APIBase:    f.srv.URL,
+		Repo:        "o/r",
+		BinaryName:  "vmrc",
+		Version:     "v0.1.0",
+		GOOS:        "linux",
+		GOARCH:      "amd64",
+		HTTPClient:  f.srv.Client(),
+		APIBase:     f.srv.URL,
+		TrustedKeys: []ed25519.PublicKey{f.signKey.Public().(ed25519.PublicKey)},
 	}
 }
 
@@ -78,6 +98,9 @@ func (f *fakeGitHub) release() ghRelease {
 	rel := ghRelease{TagName: f.tag, Name: f.tag, Body: "notes", Prerelease: f.prerelease}
 	if f.checksums != "" {
 		rel.Assets = append(rel.Assets, ghAsset{Name: "checksums.txt", DownloadURL: f.srv.URL + "/dl/checksums.txt"})
+		if !f.omitSig {
+			rel.Assets = append(rel.Assets, ghAsset{Name: "checksums.txt.sig", DownloadURL: f.srv.URL + "/dl/checksums.txt.sig"})
+		}
 	}
 	if !f.omitAsset {
 		rel.Assets = append(rel.Assets, ghAsset{Name: f.assetName, DownloadURL: f.srv.URL + "/dl/" + f.assetName})
@@ -110,6 +133,9 @@ func TestCheck(t *testing.T) {
 		if rel.ChecksumURL == "" {
 			t.Error("ChecksumURL empty")
 		}
+		if rel.SignatureURL == "" {
+			t.Error("SignatureURL empty")
+		}
 	})
 
 	t.Run("up to date", func(t *testing.T) {
@@ -136,6 +162,14 @@ func TestCheck(t *testing.T) {
 		_, err := Check(context.Background(), tgt, Options{})
 		if !errors.Is(err, ErrNoAsset) {
 			t.Errorf("Check = %v, want ErrNoAsset", err)
+		}
+	})
+
+	t.Run("missing signature asset is refused", func(t *testing.T) {
+		tgt := newFakeGitHub(t, &fakeGitHub{tag: "v0.2.0", omitSig: true})
+		_, err := Check(context.Background(), tgt, Options{})
+		if !errors.Is(err, ErrSignature) {
+			t.Errorf("Check = %v, want ErrSignature", err)
 		}
 	})
 

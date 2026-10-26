@@ -26,7 +26,8 @@ func updateCommand() *cli.Command {
 			&cli.BoolFlag{Name: "self", Usage: "update this local vmrc binary"},
 			&cli.BoolFlag{Name: "all", Usage: "update every reachable agent matching --tag"},
 			&cli.BoolFlag{Name: "check", Usage: "report the available version without installing"},
-			&cli.StringFlag{Name: "version", Usage: "install a specific release tag (allows reinstall/downgrade)"},
+			&cli.StringFlag{Name: "version", Usage: "install a specific release tag (allows reinstall; an older tag on an agent also needs --downgrade)"},
+			&cli.BoolFlag{Name: "downgrade", Usage: "allow --version to move agents to an older release"},
 			&cli.BoolFlag{Name: "force", Usage: "allow updating a dev build"},
 			&cli.BoolFlag{Name: "pre", Usage: "consider prereleases"},
 			&cli.StringFlag{Name: "github-token", Usage: "optional GitHub token (raises the API rate limit)", Sources: cli.EnvVars("GITHUB_TOKEN")},
@@ -57,9 +58,10 @@ func updateAction(ctx context.Context, cmd *cli.Command) error {
 // bundle reused for both the local and remote paths.
 func remoteParams(cmd *cli.Command) host.UpdateParams {
 	return host.UpdateParams{
-		Version: cmd.String("version"),
-		Pre:     cmd.Bool("pre"),
-		Force:   cmd.Bool("force"),
+		Version:   cmd.String("version"),
+		Pre:       cmd.Bool("pre"),
+		Force:     cmd.Bool("force"),
+		Downgrade: cmd.Bool("downgrade"),
 	}
 }
 

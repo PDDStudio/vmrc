@@ -1,6 +1,7 @@
 package selfupdate
 
 import (
+	"regexp"
 	"strconv"
 	"strings"
 )
@@ -201,4 +202,26 @@ func compareCore(a, b string) int {
 // isNewer reports whether remote is a strictly newer version than current.
 func isNewer(remote, current string) bool {
 	return compareVersions(remote, current) > 0
+}
+
+// localBuild matches version strings stamped on builds made from source rather
+// than a release: `git describe` past a tag (-3-gabc1234), a dirty tree
+// (-dirty / +dirty), and Go pseudo-versions from `go install` (a 14-digit UTC
+// timestamp followed by a 12-hex commit).
+var localBuild = regexp.MustCompile(`-\d+-g[0-9a-f]{4,}|[-+]dirty$|\d{14}-[0-9a-f]{12}`)
+
+// isDevBuild reports whether v is not a published release: non-numeric
+// ("dev", "") or a locally built version.
+func isDevBuild(v string) bool {
+	v = normalizeVersion(v)
+	return !isReleaseVersion(v) || localBuild.MatchString(v)
+}
+
+// IsDowngrade reports whether installing target would move a release build
+// back to an older release. A dev build has no release to protect.
+func IsDowngrade(target, current string) bool {
+	if isDevBuild(current) {
+		return false
+	}
+	return compareVersions(target, current) < 0
 }

@@ -9,11 +9,12 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/pddstudio/vmrc/internal/protocol"
 	"tailscale.com/ipn/ipnstate"
 )
 
 // DefaultTag is the ACL tag identifying vmrc agents on the tailnet.
-const DefaultTag = "tag:vmrc"
+const DefaultTag = protocol.AgentTag
 
 // Agent is a discovered vmrc node on the tailnet.
 type Agent struct {
