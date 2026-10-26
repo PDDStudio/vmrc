@@ -101,19 +101,22 @@ func TestConfigPathForSystemMatchesDefault(t *testing.T) {
 	}
 }
 
-func TestLoadFileIgnoresSecretKeys(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "vmrc.json")
-	// token/authkey in the file must NOT populate the secret fields.
-	if err := os.WriteFile(path, []byte(`{"token":"leaked","authkey":"leaked"}`), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	out, err := LoadFile(Defaults(), path)
-	if err != nil {
-		t.Fatalf("LoadFile err = %v", err)
-	}
-	if out.Token != "" || out.AuthKey != "" {
-		t.Fatalf("secrets must not load from file: token=%q authkey=%q", out.Token, out.AuthKey)
+func TestLoadFileRejectsSecretKeys(t *testing.T) {
+	// Secrets are never read from the file. A token there used to be silently
+	// ignored, leaving the operator believing it was set; now it's an error that
+	// points at the supported places.
+	for _, key := range []string{"token", "auth_key", "authkey", "github_token"} {
+		path := filepath.Join(t.TempDir(), "vmrc.json")
+		if err := os.WriteFile(path, []byte(`{"`+key+`":"leaked"}`), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		out, err := LoadFile(Defaults(), path)
+		if err == nil || !strings.Contains(err.Error(), "secret") {
+			t.Fatalf("%s: want an error explaining secrets aren't read from the file, got %v", key, err)
+		}
+		if out.Token != "" || out.AuthKey != "" || out.GitHubToken != "" {
+			t.Fatalf("%s: secrets must not load from file", key)
+		}
 	}
 }
 
@@ -126,7 +129,7 @@ func TestValidate(t *testing.T) {
 	}{
 		{
 			name: "valid config",
-			cfg:  Config{StateDir: testAbs("/var/lib/vmrc/state"), BaseDir: testAbs("/var/lib/vmrc/files"), ReadGlobs: []string{"*.log"}, ListenPort: 47800},
+			cfg:  Config{StateDir: testAbs("/var/lib/vmrc/state"), BaseDir: testAbs("/var/lib/vmrc/files"), ReadGlobs: []string{"*.log"}, ListenPort: 47800, AllowedLogins: []string{"op@example.com"}},
 		},
 		{
 			name:    "relative base dir",
@@ -158,7 +161,7 @@ func TestValidate(t *testing.T) {
 			// (empty = "not set"); lock in that contract so a future change can't
 			// silently start rejecting unset paths.
 			name: "empty paths are skipped, not rejected",
-			cfg:  Config{StateDir: "", BaseDir: "", ReadGlobs: []string{"*.log"}, ListenPort: 47800},
+			cfg:  Config{StateDir: "", BaseDir: "", ReadGlobs: []string{"*.log"}, ListenPort: 47800, AllowedLogins: []string{"op@example.com"}},
 		},
 	}
 	for _, tt := range tests {

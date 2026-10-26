@@ -139,5 +139,5 @@ if [ "$BINARY" = vmrc-agent ]; then
 	echo
 	echo "Next: enroll this VM on your tailnet and install the boot service"
 	echo "(run from a privileged shell — sudo on Linux/macOS):"
-	echo "  TS_AUTHKEY=tskey-... vmrc-agent setup"
+	echo "  TS_AUTHKEY=tskey-... vmrc-agent setup --allow-login you@example.com"
 fi

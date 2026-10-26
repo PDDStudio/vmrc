@@ -20,7 +20,9 @@ It ships as **two binaries** built from one Go module:
 
 Because the interface is just a CLI, it's equally drivable by a **human or an AI agent**.
 A bundled Claude Code skill teaches an agent the *screenshot → reason → act* loop
-([install it below](#3-install-the-ai-agent-skill)).
+([install it below](#3-install-the-ai-agent-skill)), and `vmrc mcp` exposes the same verbs
+as native **MCP tools** for Claude Code, Claude Desktop, or any MCP client
+([see below](#use-with-claude-code--mcp-clients)).
 
 ## How it works
 
@@ -97,11 +99,15 @@ curl -fsSL https://raw.githubusercontent.com/pddstudio/vmrc/main/scripts/install
 > the URL with a release tag (e.g. `v0.3.0`). Every release archive carries SLSA build
 > provenance; check one with `gh attestation verify <archive> -R pddstudio/vmrc`.
 
-Then enroll the VM by running `setup` with the auth key in the environment:
+Then enroll the VM by running `setup` with the auth key in the environment, and say
+who may drive it (your Tailscale login):
 
 ```sh
-TS_AUTHKEY=tskey-... vmrc-agent setup
+TS_AUTHKEY=tskey-... vmrc-agent setup --allow-login you@example.com
 ```
+
+`setup` refuses to finish without `--allow-login`, `--allow-tag`, or `--token-file`:
+an agent with none of them would deny every request.
 
 That's it. `setup` writes the config, copies the agent into a managed working
 directory, enrolls the VM on your tailnet, and installs + starts the service so it
@@ -161,6 +167,56 @@ Once installed, ask the agent to control a VM in plain language ("take a screens
 CLI for you. The agent operates the `vmrc` CLI only — it never calls the HTTP API
 directly, so the same tailnet + identity auth applies.
 
+## Use with Claude Code / MCP clients
+
+`vmrc mcp` runs an [MCP](https://modelcontextprotocol.io) server over stdio, so an AI agent
+can drive the fleet through native tools instead of shelling out to the CLI. It uses the
+same discovery, auth, and flags as the CLI (`--token`/`VMRC_TOKEN`, `--port`, `--scheme`,
+`--tag`, `--timeout`); put global flags **before** `mcp`.
+
+Register it with Claude Code:
+
+```sh
+claude mcp add vmrc -- vmrc mcp
+# agents on a tailnet without HTTPS certs, user-wide, with a token-fallback agent:
+claude mcp add --scope user -e VMRC_TOKEN=… vmrc -- vmrc --scheme http mcp
+```
+
+Or add it to an MCP client's JSON config (Claude Desktop's `claude_desktop_config.json`,
+a project `.mcp.json`, …):
+
+```json
+{
+  "mcpServers": {
+    "vmrc": {
+      "command": "vmrc",
+      "args": ["mcp"]
+    }
+  }
+}
+```
+
+| Tool | Arguments | Returns |
+|---|---|---|
+| `vmrc_ls` | — | agents: name, DNS name, OS, online |
+| `vmrc_exec` | `vm`, `command`, `timeout_seconds?` | combined stdout+stderr and exit code (non-zero exit is a normal result) |
+| `vmrc_screenshot` | `vm` | the screen as a PNG image the model can see |
+| `vmrc_click` | `vm`, `x`, `y`, `button?` (left/right/middle), `double?` | confirmation |
+| `vmrc_type` | `vm`, `text` | confirmation (does not press Enter) |
+| `vmrc_key` | `vm`, `combo` (e.g. `Enter`, `Ctrl+C`) | confirmation |
+| `vmrc_get` | `vm`, `remote_path`, `local_path?` | with `local_path`: writes the file atomically on the host; without: the content as text (UTF-8, ≤ 1 MiB) |
+| `vmrc_put` | `vm`, `remote_path`, and exactly one of `local_path` / `content` | bytes uploaded |
+
+Agent-side failures (unknown VM, `403`, unreachable) come back as tool errors the model can
+read and act on; they never take the server down. Self-update is **deliberately not exposed**
+as a tool — replacing agent binaries stays an operator action (`vmrc update`). The MCP server
+logs every tool call to stderr; stdout carries only the protocol.
+
+> [!CAUTION]
+> An MCP client with these tools has the same power as you at the CLI: arbitrary command
+> execution and GUI control on every agent your tailnet identity can reach. Review tool calls
+> (keep your client's per-tool approval on) and scope `--tag` to the VMs the agent should touch.
+
 ---
 
 ## Driving the fleet
@@ -174,7 +230,7 @@ vmrc shot buildbox -o shot.png           # screenshot the desktop
 vmrc click buildbox 640 300              # click at absolute screen pixels
 vmrc type  buildbox "hello world"        # type literal text
 vmrc key   buildbox "Enter"              # press a key / combo (Tab, Ctrl+C, Alt+F4…)
-vmrc get buildbox:C:\out\app.zip ./app.zip
+vmrc get buildbox:out/app.zip ./app.zip   # paths are relative to the agent's base_dir
 vmrc put ./tool.exe buildbox:tools/tool.exe   # lands in the agent's uploads dir
 vmrc exec buildbox -- uploads\tools\tool.exe --version
 ```
@@ -216,9 +272,19 @@ By default the agent is reachable by anything your Tailscale ACLs let onto port
 - the optional shared token (`VMRC_TOKEN`, env only) is a fallback used **only** for
   callers whose identity can't be resolved.
 
-With no allowlist, the agent falls back to shared-token auth (`VMRC_TOKEN`); with
-neither, every request is denied. The `--local` dev listener has no tailnet identity,
-so it is always token-only.
+With no allowlist, the agent falls back to shared-token auth; with neither, every
+request is denied. A service gets its token from `token_file` (an owner-only file
+named in the config); `VMRC_TOKEN` works for a foreground `run`. The `--local` dev
+listener has no tailnet identity, so it is always token-only.
+
+Don't put `tag:vmrc` (the tag agents carry) in `allowed_tags`: every agent could then
+drive every other one. The agent warns at startup if you do.
+
+**Browsers can't drive an agent.** Every request must carry the `X-Vmrc-Client`
+header the CLI sends, and requests with browser `Origin`/`Sec-Fetch-*` headers are
+refused. Without this, a web page open on an allowlisted machine could reach the
+agent over the tailnet and, needing no token, run commands. One consequence: an agent
+from v0.3.0 on requires a CLI from v0.3.0 or newer (older CLIs get 403/405).
 
 ## Updating
 
@@ -248,6 +314,7 @@ vmrc update --self --version v0.3.0  # pin a specific release (reinstall/downgra
 vmrc update --all                    # drive every tag:vmrc agent to self-update
 vmrc update buildbox,vm1             # update named agents
 vmrc update --all --check            # report each agent's available version
+vmrc update buildbox --version v0.3.0 --downgrade   # roll an agent back to an older release
 ```
 
 On a VM you can also update the agent locally:
@@ -259,7 +326,9 @@ vmrc-agent update --check            # report only
 
 Remote agent updates (`vmrc update --all`) drive each agent's authenticated `/update`
 endpoint: the agent fetches the release itself, replaces its binary, and exits so its
-service relaunches the new binary. A dev/source build (`version == "dev"`) refuses to
+service relaunches the new binary. Moving an agent to an *older* release needs
+`--downgrade` as well as `--version`. A dev/source build (`dev`, a `git describe` version, or a `go install`
+pseudo-version) refuses to
 update unless you pass `--force` or `--version <tag>`; prereleases are ignored unless
 you pass `--pre`.
 
@@ -280,22 +349,30 @@ also take a kebab-case flag on `run`/`setup` (e.g. `--upload-retention 24h`).
 | `log_max_size_mb` | `VMRC_LOG_MAX_SIZE_MB` | rotate `agent.log` once it would exceed this many MB (default `10`; `0` disables) |
 | `log_max_backups` | `VMRC_LOG_MAX_BACKUPS` | rotated logs kept as `agent.log.1` … `.N` (default `3`) |
 | `bin_dir` | — | dir holding the managed agent binary for self-update; defaults to a `bin/` beside the config/base dir |
-| `read_globs` | — | allowlist of readable path globs under `base_dir` |
+| `read_globs` | — | path globs under `base_dir` the `/read` endpoint may serve (`*` never crosses `/`). `get` is not limited by it: anyone authorized can read anything under `base_dir` |
 | `listen_port` | `VMRC_LISTEN_PORT` | HTTP listen port (default `47800`) |
 | `allowed_logins` | — | identity allowlist: Tailscale login names |
 | `allowed_tags` | — | identity allowlist: ACL tags, e.g. `tag:vmrc-admin` |
+| `token_file` | `VMRC_TOKEN_FILE` | file holding the shared token (must be `chmod 600` on Unix); how the installed service gets a token |
+
+Unknown keys in the config file are an error (so a typo can't silently disable your
+allowlist).
 
 The retention sweep only removes regular files and symlinks under `uploads_dir` (judged
 by their own mtime — symlinks are never followed) and then prunes directories it left
 empty; it never deletes `uploads_dir` itself. Each sweep that removes something logs a
 one-line summary.
 
-**Secrets are env-only and never read from or written to the JSON file:**
+**Secrets are never read from or written to the JSON file** (a secret key in it is an
+error); they come from the environment, or for the token, from `token_file`:
 
 | Secret | Env var |
 |---|---|
 | tailnet auth key (enrollment) | `TS_AUTHKEY` |
-| shared-token fallback | `VMRC_TOKEN` |
+| shared-token fallback | `VMRC_TOKEN` (or `token_file`) |
+
+The embedded Tailscale node doesn't upload its diagnostic logs to Tailscale unless
+you set `VMRC_TAILSCALE_LOGS=1` (useful when working with Tailscale support).
 
 ## Building from source
 
@@ -326,6 +403,7 @@ make snapshot-host   # just your host
 | [ARCHITECTURE.md](./ARCHITECTURE.md) | Technical design: agent, tunnel, service, host CLI, endpoints, security |
 | [CONTRIBUTING.md](./CONTRIBUTING.md) | How to build, test, lint, and contribute |
 | [.claude/skills/vmrc-cli/SKILL.md](./.claude/skills/vmrc-cli/SKILL.md) | The Claude Code skill: drive a VM fleet via the CLI |
+| [README → MCP](#use-with-claude-code--mcp-clients) | `vmrc mcp`: the fleet verbs as MCP tools |
 | [docs/testing-on-a-vm.md](./docs/testing-on-a-vm.md) | End-to-end Windows VM test walkthrough |
 | [docs/runbook-windows.md](./docs/runbook-windows.md) | Windows install/enroll/operate runbook |
 

@@ -11,5 +11,6 @@
   "log_max_size_mb": 10,
   "log_max_backups": 3,
   "allowed_logins": ["you@example.com"],
-  "allowed_tags": ["tag:vmrc-admin"]
+  "allowed_tags": ["tag:vmrc-admin"],
+  "token_file": "/etc/vmrc/token"
 }

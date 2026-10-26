@@ -122,5 +122,5 @@ if ($Binary -eq 'vmrc-agent') {
     Write-Host ""
     Write-Host "Next: enroll this VM on your tailnet and install the boot service"
     Write-Host "(run from an Administrator PowerShell):"
-    Write-Host "  `$env:TS_AUTHKEY='tskey-...'; vmrc-agent setup"
+    Write-Host "  `$env:TS_AUTHKEY='tskey-...'; vmrc-agent setup --allow-login you@example.com"
 }

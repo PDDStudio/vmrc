@@ -6,6 +6,7 @@ require (
 	github.com/kardianos/service v1.3.0
 	github.com/kbinani/screenshot v0.0.0-20250624051815-089614a94018
 	github.com/minio/selfupdate v0.6.0
+	github.com/modelcontextprotocol/go-sdk v1.8.0
 	github.com/urfave/cli/v3 v3.14.0
 	golang.org/x/sys v0.49.0
 	tailscale.com v1.104.2
@@ -27,6 +28,7 @@ require (
 	github.com/golang/groupcache v0.0.0-20241129210726-2c02b8208cf8 // indirect
 	github.com/google/btree v1.1.3 // indirect
 	github.com/google/go-cmp v0.7.0 // indirect
+	github.com/google/jsonschema-go v0.4.3 // indirect
 	github.com/hdevalence/ed25519consensus v0.2.0 // indirect
 	github.com/huin/goupnp v1.3.0 // indirect
 	github.com/jezek/xgb v1.3.1 // indirect
@@ -38,6 +40,8 @@ require (
 	github.com/mitchellh/go-ps v1.0.0 // indirect
 	github.com/pires/go-proxyproto v0.15.0 // indirect
 	github.com/safchain/ethtool v0.7.0 // indirect
+	github.com/segmentio/asm v1.1.3 // indirect
+	github.com/segmentio/encoding v0.5.4 // indirect
 	github.com/tailscale/certstore v0.1.1-0.20260409135935-3638fb84b77d // indirect
 	github.com/tailscale/go-winio v0.0.0-20231025203758-c4f33415bf55 // indirect
 	github.com/tailscale/hujson v0.0.0-20260727124030-b80ff77dac4f // indirect
@@ -45,6 +49,7 @@ require (
 	github.com/tailscale/web-client-prebuilt v0.0.0-20260917222731-e0ed2d0d0fea // indirect
 	github.com/tailscale/wireguard-go v0.0.0-20260928213032-417aef361226 // indirect
 	github.com/x448/float16 v0.8.4 // indirect
+	github.com/yosida95/uritemplate/v3 v3.0.2 // indirect
 	go4.org/mem v0.0.0-20240501181205-ae6ca9944745 // indirect
 	go4.org/netipx v0.0.0-20260823151212-3075585bcbeb // indirect
 	golang.org/x/crypto v0.58.0 // indirect

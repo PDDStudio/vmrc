@@ -73,7 +73,7 @@ func (f *fakeInjector) Key(combo string) error { f.keyCombo = combo; return f.er
 
 func serveInput(s *Server, method, target string) *httptest.ResponseRecorder {
 	rec := httptest.NewRecorder()
-	s.Handler().ServeHTTP(rec, httptest.NewRequest(method, target, nil))
+	s.Handler().ServeHTTP(rec, newClientRequest(method, target, nil))
 	return rec
 }
 

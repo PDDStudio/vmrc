@@ -34,6 +34,7 @@ func runCommand() *cli.Command {
 			&cli.StringSliceFlag{Name: "allow-login", Usage: "identity allowlist: Tailscale login name (repeatable)"},
 			&cli.StringSliceFlag{Name: "allow-tag", Usage: "identity allowlist: ACL tag, e.g. tag:prod (repeatable)"},
 			&cli.StringFlag{Name: "token", Usage: "shared-token fallback (prefer the VMRC_TOKEN env var)", Sources: cli.EnvVars("VMRC_TOKEN")},
+			&cli.StringFlag{Name: "token-file", Usage: "file holding the shared token (chmod 600); how a service gets a token", Sources: cli.EnvVars("VMRC_TOKEN_FILE")},
 			&cli.StringFlag{Name: "hostname", Usage: "tsnet node name on the tailnet", Sources: cli.EnvVars("VMRC_HOSTNAME")},
 			&cli.StringFlag{Name: "state-dir", Usage: "tsnet state directory", Sources: cli.EnvVars("VMRC_STATE_DIR")},
 			&cli.StringFlag{Name: "log-file", Usage: "log-file path (default: <config-dir>/logs/agent.log)", Sources: cli.EnvVars("VMRC_LOG_FILE")},
@@ -147,6 +148,12 @@ func resolveConfigFrom(cmd *cli.Command, cfg config.Config, path string, explici
 	}
 	if cmd.IsSet("token") {
 		cfg.Token = cmd.String("token")
+	}
+	if cmd.IsSet("token-file") {
+		cfg.TokenFile = cmd.String("token-file")
+	}
+	if err := cfg.ResolveToken(); err != nil {
+		return cfg, err
 	}
 	if cmd.IsSet("hostname") {
 		cfg.Hostname = cmd.String("hostname")
