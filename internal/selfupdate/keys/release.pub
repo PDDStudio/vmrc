@@ -1,0 +1,3 @@
+# vmrc release signing public key (ed25519), key id aea1168580cbb9ce.
+# Embedded in vmrc binaries to verify checksums.txt.sig. Safe to publish.
+NDJoPmiGKa3I6hsr7OhJeHs9zHpYVcYfu2rVkTE/hBs=
