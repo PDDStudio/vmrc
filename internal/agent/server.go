@@ -17,6 +17,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"runtime"
 	"strconv"
@@ -338,10 +339,14 @@ func (s *Server) handleKey(w http.ResponseWriter, r *http.Request) {
 }
 
 // readMatches reports whether rel matches any configured read glob. With no
-// globs configured, nothing is readable (deny by default).
+// globs configured, nothing is readable (deny by default). rel comes from the
+// URL, so it's slash-separated on every OS: matching uses path.Match, where
+// "*" never crosses a "/". (filepath.Match on Windows only treats a backslash
+// as a separator, so "*.log" used to match "a/b/c.log" there.)
 func (s *Server) readMatches(rel string) bool {
+	rel = path.Clean("/" + rel)[1:]
 	for _, g := range s.ReadGlobs {
-		if ok, _ := filepath.Match(g, rel); ok {
+		if ok, _ := path.Match(filepath.ToSlash(g), rel); ok {
 			return true
 		}
 	}

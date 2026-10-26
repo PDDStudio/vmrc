@@ -367,3 +367,20 @@ func TestScreenshotOtherErrorReturns500(t *testing.T) {
 		t.Fatalf("got status %d, want 500", rec.Code)
 	}
 }
+
+func TestReadGlobStarDoesNotCrossDirectories(t *testing.T) {
+	s, base := newTestServer(t)
+	if err := os.MkdirAll(filepath.Join(base, "sub"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(base, "sub", "deep.log"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range []string{"sub/deep.log", "sub//deep.log"} {
+		rec := httptest.NewRecorder()
+		s.Handler().ServeHTTP(rec, newClientRequest("GET", "/read/"+p+"?token=secret", nil))
+		if rec.Code == http.StatusOK {
+			t.Fatalf("%q: glob *.log must not match a nested path", p)
+		}
+	}
+}

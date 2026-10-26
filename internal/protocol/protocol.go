@@ -7,3 +7,7 @@ package protocol
 // always sets it; a browser cannot attach a custom header to a cross-origin
 // request without a CORS preflight, which the agent never answers.
 const ClientHeader = "X-Vmrc-Client"
+
+// AgentTag is the ACL tag vmrc agents carry on the tailnet (their auth key is
+// tagged with it) and that the host discovers them by.
+const AgentTag = "tag:vmrc"
