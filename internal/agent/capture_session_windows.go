@@ -42,7 +42,7 @@ func captureViaActiveSession() ([]byte, error) {
 		// No user logged into the console session.
 		return nil, fmt.Errorf("%w: %v", ErrNoInteractiveSession, err)
 	}
-	defer userTok.Close()
+	defer func() { _ = userTok.Close() }()
 
 	var primary windows.Token
 	if err := windows.DuplicateTokenEx(
@@ -51,7 +51,7 @@ func captureViaActiveSession() ([]byte, error) {
 	); err != nil {
 		return nil, fmt.Errorf("duplicate token: %w", err)
 	}
-	defer primary.Close()
+	defer func() { _ = primary.Close() }()
 
 	// Anonymous pipe; the write end is inheritable so the child can use it.
 	sa := windows.SecurityAttributes{InheritHandle: 1}
@@ -68,28 +68,28 @@ func captureViaActiveSession() ([]byte, error) {
 	handedOver := false
 	defer func() {
 		if !handedOver {
-			windows.CloseHandle(rd)
+			_ = windows.CloseHandle(rd)
 		}
 	}()
 	// Keep the read end out of the child.
 	if err := windows.SetHandleInformation(rd, windows.HANDLE_FLAG_INHERIT, 0); err != nil {
-		windows.CloseHandle(wr)
+		_ = windows.CloseHandle(wr)
 		return nil, fmt.Errorf("set handle information: %w", err)
 	}
 
 	exe, err := os.Executable()
 	if err != nil {
-		windows.CloseHandle(wr)
+		_ = windows.CloseHandle(wr)
 		return nil, err
 	}
 	cmdline, err := windows.UTF16PtrFromString(fmt.Sprintf(`"%s" capture-helper`, exe))
 	if err != nil {
-		windows.CloseHandle(wr)
+		_ = windows.CloseHandle(wr)
 		return nil, err
 	}
 	desktop, err := windows.UTF16PtrFromString(`winsta0\default`)
 	if err != nil {
-		windows.CloseHandle(wr)
+		_ = windows.CloseHandle(wr)
 		return nil, err
 	}
 
@@ -104,12 +104,12 @@ func captureViaActiveSession() ([]byte, error) {
 		primary, nil, cmdline, nil, nil,
 		true, windows.CREATE_NO_WINDOW, nil, nil, &si, &pi,
 	)
-	windows.CloseHandle(wr) // child has its own copy; parent must close to see EOF
+	_ = windows.CloseHandle(wr) // child has its own copy; parent must close to see EOF
 	if err != nil {
 		return nil, fmt.Errorf("create process as user: %w", err)
 	}
-	defer windows.CloseHandle(pi.Thread)
-	defer windows.CloseHandle(pi.Process)
+	defer func() { _ = windows.CloseHandle(pi.Thread) }()
+	defer func() { _ = windows.CloseHandle(pi.Process) }()
 
 	// Drain the PNG from the pipe concurrently (the child blocks once the pipe
 	// buffer is full), while this goroutine waits on the process with a bound.

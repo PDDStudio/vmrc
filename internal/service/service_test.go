@@ -124,10 +124,10 @@ func TestProgramStopRacingUnexpectedExit(t *testing.T) {
 	defer func() { stopTimeout = old }()
 
 	for i := 0; i < 200; i++ {
-		exited := make(chan error, 1)
+		exited := make(chan struct{}, 1)
 		p := &program{
 			run:    func(ctx context.Context) error { return errors.New("died") },
-			onExit: func(err error) { exited <- err },
+			onExit: func(error) { exited <- struct{}{} },
 		}
 		if err := p.Start(nil); err != nil {
 			t.Fatalf("Start: %v", err)

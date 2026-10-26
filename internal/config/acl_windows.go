@@ -178,7 +178,7 @@ func fileAttrs(p string) (attrs, links uint32, err error) {
 	if err != nil {
 		return 0, 0, fmt.Errorf("inspecting %s: %w", p, err)
 	}
-	defer windows.CloseHandle(h)
+	defer func() { _ = windows.CloseHandle(h) }()
 	var info windows.ByHandleFileInformation
 	if err := windows.GetFileInformationByHandle(h, &info); err != nil {
 		return 0, 0, fmt.Errorf("inspecting %s: %w", p, err)

@@ -25,7 +25,7 @@ func startProcess(t *testing.T, args ...string) (*exec.Cmd, windows.Handle) {
 		_ = c.Process.Kill()
 		t.Fatalf("OpenProcess: %v", err)
 	}
-	t.Cleanup(func() { windows.CloseHandle(h) })
+	t.Cleanup(func() { _ = windows.CloseHandle(h) })
 	return c, h
 }
 
