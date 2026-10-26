@@ -155,8 +155,8 @@ func buildController(cmd *cli.Command, mode config.Mode) (controller, error) {
 }
 
 // elevatedTaskFor reports whether the Windows logon task cmd manages is (or
-// will be) elevated: for setup/install unless --no-elevate, otherwise when the
-// detected install uses the protected layout. Used for the privilege policy.
+// will be) elevated: for setup/install unless --no-elevate, otherwise when an
+// install with the protected layout exists. Used for the privilege policy.
 func elevatedTaskFor(cmd *cli.Command, mode config.Mode) bool {
 	if mode != config.ModeUser {
 		return false
@@ -164,7 +164,15 @@ func elevatedTaskFor(cmd *cli.Command, mode config.Mode) bool {
 	if registersTask(cmd) {
 		return !cmd.Bool(noElevateFlagName)
 	}
-	return userLayout(cmd, mode) == config.LayoutProtected
+	if userLayout(cmd, mode) != config.LayoutProtected {
+		return false
+	}
+	p, err := config.ConfigPathForLayout(config.ModeUser, config.LayoutProtected)
+	if err != nil {
+		return false
+	}
+	_, err = os.Stat(p)
+	return err == nil
 }
 
 // preflightInstall checks absolute paths and that a protected install keeps
