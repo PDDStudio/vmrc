@@ -7,6 +7,7 @@
 package agent
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -20,13 +21,20 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/pddstudio/vmrc/internal/selfupdate"
 )
 
-// execTimeout bounds a single /exec command (packing/builds can be slow).
-const execTimeout = 10 * time.Minute
+// Defaults for Server.ExecTimeout and Server.MaxExecOutput.
+const (
+	execTimeoutDefault   = 10 * time.Minute // packing/builds can be slow
+	maxExecOutputDefault = 64 << 20         // combined stdout+stderr kept per /exec
+	// execPipeGrace bounds how long /exec keeps reading output after the shell
+	// exits or times out, so a backgrounded child holding stdout can't stall it.
+	execPipeGrace = 2 * time.Second
+)
 
 // ErrNoInteractiveSession is returned by a Capturer when no user is logged into
 // the interactive (console) session, so the desktop cannot be captured. The
@@ -62,6 +70,10 @@ type Server struct {
 	// restartDelayDefault).
 	ExitFunc     func(int)
 	RestartDelay time.Duration
+	// ExecTimeout bounds one /exec command (default execTimeoutDefault);
+	// MaxExecOutput caps the output it returns (default maxExecOutputDefault).
+	ExecTimeout   time.Duration
+	MaxExecOutput int
 	// execPathFn overrides os.Executable in tests so a POST /update applies to a
 	// temp file instead of the test binary. nil uses os.Executable.
 	execPathFn func() (string, error)
@@ -375,25 +387,75 @@ func (s *Server) handleExec(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.logf("exec   > %s", cmdline)
-	ctx, cancel := context.WithTimeout(r.Context(), execTimeout)
+	timeout := s.ExecTimeout
+	if timeout <= 0 {
+		timeout = execTimeoutDefault
+	}
+	limit := s.MaxExecOutput
+	if limit <= 0 {
+		limit = maxExecOutputDefault
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), timeout)
 	defer cancel()
 	c := shellCommand(ctx, cmdline)
 	s.setWorkdir(c)
+	killTreeOnCancel(c)
+	c.WaitDelay = execPipeGrace
+	out := &cappedBuffer{limit: limit}
+	c.Stdout, c.Stderr = out, out
 	start := time.Now()
-	out, err := c.CombinedOutput()
+	err := c.Run()
 	status := 0
-	if err != nil {
-		if ee, ok := err.(*exec.ExitError); ok {
-			status = ee.ExitCode()
-		} else {
-			status = -1 // failed to start / timed out
-			out = append(out, []byte("\n[exec error] "+err.Error())...)
-		}
+	var ee *exec.ExitError
+	switch {
+	case ctx.Err() != nil:
+		status = -1
+		out.note("\n[exec error] " + ctx.Err().Error() + " (process tree killed)")
+	case errors.As(err, &ee):
+		status = ee.ExitCode()
+	case errors.Is(err, exec.ErrWaitDelay):
+		// The shell exited; a child it backgrounded still held the output pipe.
+		status = c.ProcessState.ExitCode()
+	case err != nil:
+		status = -1 // failed to start
+		out.note("\n[exec error] " + err.Error())
 	}
-	s.logf("exec   < exit=%d (%s, %d bytes): %s", status, time.Since(start).Round(time.Millisecond), len(out), cmdline)
+	if out.truncated {
+		w.Header().Set("X-Output-Truncated", "true")
+	}
+	s.logf("exec   < exit=%d (%s, %d bytes): %s", status, time.Since(start).Round(time.Millisecond), out.buf.Len(), cmdline)
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.Header().Set("X-Exit-Status", strconv.Itoa(status))
-	_, _ = w.Write(out)
+	_, _ = w.Write(out.buf.Bytes())
+}
+
+// cappedBuffer keeps the first limit bytes written and discards the rest (while
+// still accepting them, so the command never blocks on a full pipe).
+type cappedBuffer struct {
+	mu        sync.Mutex
+	buf       bytes.Buffer
+	limit     int
+	truncated bool
+}
+
+func (b *cappedBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if room := b.limit - b.buf.Len(); room < len(p) {
+		b.truncated = true
+		if room > 0 {
+			b.buf.Write(p[:room])
+		}
+		return len(p), nil
+	}
+	return b.buf.Write(p)
+}
+
+// note appends an agent-generated message regardless of the cap.
+func (b *cappedBuffer) note(msg string) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.buf.WriteString(msg)
 }
 
 // handleSpawn launches ?cmd=... detached in the base dir (fire-and-forget) and
