@@ -22,6 +22,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/pddstudio/vmrc/internal/selfupdate"
@@ -81,6 +82,9 @@ type Server struct {
 	// /spawn child has been waited on and reaped. Test-only observability seam;
 	// nil in production.
 	spawnReaped func(pid int)
+	// updating is set while a POST /update is downloading/applying, so a second
+	// concurrent apply can't race the first's binary rename.
+	updating atomic.Bool
 }
 
 // UpdateConfig describes the running binary so the /update handler can pick the
@@ -602,6 +606,17 @@ func (s *Server) handleUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	q := r.URL.Query()
+	if r.Method == http.MethodGet && q.Get("check") == "" {
+		http.Error(w, "use GET ?check=1 or POST", http.StatusBadRequest)
+		return
+	}
+	if r.Method == http.MethodPost {
+		if !s.updating.CompareAndSwap(false, true) {
+			http.Error(w, "an update is already in progress", http.StatusConflict)
+			return
+		}
+		defer s.updating.Store(false)
+	}
 	t := selfupdate.Target{
 		Repo:       s.Update.Repo,
 		BinaryName: s.Update.BinaryName,
@@ -629,11 +644,6 @@ func (s *Server) handleUpdate(w http.ResponseWriter, r *http.Request) {
 		s.writeJSON(w, st)
 		return
 	}
-	if r.Method != http.MethodPost {
-		http.Error(w, "use GET ?check=1 or POST", http.StatusMethodNotAllowed)
-		return
-	}
-
 	// POST: apply.
 	if upToDate {
 		s.writeJSON(w, updateResult{Old: s.Update.Version, New: s.Update.Version, Restarting: false})
@@ -641,6 +651,13 @@ func (s *Server) handleUpdate(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := selfupdate.GateDevBuild(s.Update.Version, q.Get("force") != "", q.Get("version")); err != nil {
 		http.Error(w, err.Error(), http.StatusForbidden)
+		return
+	}
+	// A pinned older tag is how a caller would roll the fleet back onto a
+	// release with a known bug, so it takes an explicit downgrade=1.
+	if selfupdate.IsDowngrade(rel.TagName, s.Update.Version) && q.Get("downgrade") == "" {
+		s.logf("update DENIED downgrade %s -> %s (no downgrade=1)", s.Update.Version, rel.TagName)
+		http.Error(w, fmt.Sprintf("refusing to downgrade %s -> %s without downgrade=1", s.Update.Version, rel.TagName), http.StatusConflict)
 		return
 	}
 	exe, err := s.executable()

@@ -175,9 +175,10 @@ func (c *Client) Get(ctx context.Context, remotePath string) (io.ReadCloser, err
 // UpdateParams are the optional self-update knobs forwarded to an agent's
 // /update endpoint as query parameters.
 type UpdateParams struct {
-	Version string // pin a release tag
-	Pre     bool   // consider prereleases
-	Force   bool   // allow updating a dev build
+	Version   string // pin a release tag
+	Pre       bool   // consider prereleases
+	Force     bool   // allow updating a dev build
+	Downgrade bool   // allow a pinned Version older than the agent's
 }
 
 func (p UpdateParams) apply(q url.Values) {
@@ -189,6 +190,9 @@ func (p UpdateParams) apply(q url.Values) {
 	}
 	if p.Force {
 		q.Set("force", "1")
+	}
+	if p.Downgrade {
+		q.Set("downgrade", "1")
 	}
 }
 

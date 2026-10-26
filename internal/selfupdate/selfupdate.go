@@ -155,7 +155,7 @@ func (t Target) resolveAssets(gh ghRelease) (Release, error) {
 // pinned tag, so a source build is never silently overwritten by a release
 // binary. Both commands call it before Apply.
 func GateDevBuild(version string, force bool, pinnedTag string) error {
-	if isReleaseVersion(normalizeVersion(version)) || force || pinnedTag != "" {
+	if !isDevBuild(version) || force || pinnedTag != "" {
 		return nil
 	}
 	return fmt.Errorf("this is a dev build (%s); re-run with --force or --version <tag> to install a release", version)
