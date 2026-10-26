@@ -19,6 +19,9 @@ shell.
   `VMRC_TOKEN` or pass `--token`. The CLI uses HTTPS by default; pass `--scheme http`
   for agents on a tailnet without HTTPS certs, and `--tag` to target a non-default ACL tag.
 
+If the `vmrc_*` MCP tools (from `vmrc mcp`) are available in your session, prefer
+them — same verbs, same loop, and `vmrc_screenshot` shows you the image directly.
+
 ## Discover the fleet
 
 ```sh
