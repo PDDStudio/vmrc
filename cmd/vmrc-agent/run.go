@@ -24,7 +24,7 @@ func runCommand() *cli.Command {
 	return &cli.Command{
 		Name:  "run",
 		Usage: "run the agent in the foreground (also the installed service body)",
-		Flags: []cli.Flag{
+		Flags: append([]cli.Flag{
 			configFlag(),
 			serviceNameFlag(),
 			systemFlag(),
@@ -38,8 +38,20 @@ func runCommand() *cli.Command {
 			&cli.StringFlag{Name: "state-dir", Usage: "tsnet state directory", Sources: cli.EnvVars("VMRC_STATE_DIR")},
 			&cli.StringFlag{Name: "log-file", Usage: "log-file path (default: <config-dir>/logs/agent.log)", Sources: cli.EnvVars("VMRC_LOG_FILE")},
 			&cli.BoolFlag{Name: "local", Usage: "serve on a plain local TCP listener (dev; bypasses the tailnet tunnel)"},
-		},
+		}, retentionFlags()...),
 		Action: runAction,
+	}
+}
+
+// retentionFlags are the upload-retention and log-rotation flags shared by run
+// and setup. Durations use Go syntax ("168h", "30m"); 0 disables.
+func retentionFlags() []cli.Flag {
+	return []cli.Flag{
+		&cli.StringFlag{Name: "uploads-dir", Usage: "directory /put writes into (default: <base-dir>/uploads)", Sources: cli.EnvVars("VMRC_UPLOADS_DIR")},
+		&cli.DurationFlag{Name: "upload-retention", Usage: "delete uploads older than this (by mtime); 0 disables (default: 168h)", Sources: cli.EnvVars("VMRC_UPLOAD_RETENTION")},
+		&cli.DurationFlag{Name: "retention-sweep-interval", Usage: "how often to sweep expired uploads (default: 1h)", Sources: cli.EnvVars("VMRC_RETENTION_SWEEP_INTERVAL")},
+		&cli.IntFlag{Name: "log-max-size-mb", Usage: "rotate the agent log at this size in MB; 0 disables (default: 10)", Sources: cli.EnvVars("VMRC_LOG_MAX_SIZE_MB")},
+		&cli.IntFlag{Name: "log-max-backups", Usage: "rotated agent log files to keep (default: 3)", Sources: cli.EnvVars("VMRC_LOG_MAX_BACKUPS")},
 	}
 }
 
@@ -142,6 +154,21 @@ func resolveConfigFrom(cmd *cli.Command, cfg config.Config, path string, explici
 	if cmd.IsSet("state-dir") {
 		cfg.StateDir = cmd.String("state-dir")
 	}
+	if cmd.IsSet("uploads-dir") {
+		cfg.UploadsDir = cmd.String("uploads-dir")
+	}
+	if cmd.IsSet("upload-retention") {
+		cfg.UploadRetention = config.Duration(cmd.Duration("upload-retention"))
+	}
+	if cmd.IsSet("retention-sweep-interval") {
+		cfg.RetentionSweepInterval = config.Duration(cmd.Duration("retention-sweep-interval"))
+	}
+	if cmd.IsSet("log-max-size-mb") {
+		cfg.LogMaxSizeMB = cmd.Int("log-max-size-mb")
+	}
+	if cmd.IsSet("log-max-backups") {
+		cfg.LogMaxBackups = cmd.Int("log-max-backups")
+	}
 	// authkey is a secret: env only, never a flag or JSON key.
 	cfg.AuthKey = os.Getenv("TS_AUTHKEY")
 	// github token is optional and env-only; it only raises the self-update API rate limit.
@@ -209,13 +236,17 @@ func runAction(ctx context.Context, cmd *cli.Command) error {
 	// and keep going on stderr only.
 	logPath := runLogPath(cmd)
 	banner := fmt.Sprintf("vmrc-agent %s (commit %s) starting: pid=%d args=%v", version, commit, os.Getpid(), redactArgs(os.Args[1:]))
-	if err := setupLogging(logPath, banner); err != nil {
+	logFile, err := setupLogging(logPath, banner)
+	if err != nil {
 		log.Printf("WARNING: file logging to %q disabled: %v", logPath, err)
 	}
 
 	cfg, err := resolveRunConfig(cmd)
 	if err != nil {
 		return err
+	}
+	if logFile != nil {
+		logFile.SetLimits(megabytes(cfg.LogMaxSizeMB), cfg.LogMaxBackups)
 	}
 	local := cmd.Bool("local")
 	mgr, err := service.New(service.Config{
@@ -252,10 +283,11 @@ func serveAgent(ctx context.Context, cfg config.Config, local bool) error {
 		return err
 	}
 	srv := &agent.Server{
-		Capturer:  agent.ScreenCapturer{},
-		Injector:  agent.SystemInjector{},
-		BaseDir:   cfg.BaseDir,
-		ReadGlobs: cfg.ReadGlobs,
+		Capturer:   agent.ScreenCapturer{},
+		Injector:   agent.SystemInjector{},
+		BaseDir:    cfg.BaseDir,
+		UploadsDir: cfg.EffectiveUploadsDir(),
+		ReadGlobs:  cfg.ReadGlobs,
 		Update: agent.UpdateConfig{
 			Repo:        updateRepo,
 			BinaryName:  serviceName,
@@ -263,6 +295,18 @@ func serveAgent(ctx context.Context, cfg config.Config, local bool) error {
 			GitHubToken: cfg.GitHubToken,
 		},
 	}
+	// Background upload-retention sweeper; it stops when ctx is canceled and
+	// serveAgent waits for it so shutdown never races an in-flight sweep.
+	sweeper := &agent.Sweeper{
+		Dir:       cfg.EffectiveUploadsDir(),
+		Retention: time.Duration(cfg.UploadRetention),
+		Interval:  time.Duration(cfg.RetentionSweepInterval),
+	}
+	sweepCtx, stopSweep := context.WithCancel(ctx)
+	sweepDone := make(chan struct{})
+	go func() { defer close(sweepDone); sweeper.Run(sweepCtx) }()
+	defer func() { stopSweep(); <-sweepDone }()
+
 	hasAllowlist := len(cfg.AllowedLogins) > 0 || len(cfg.AllowedTags) > 0
 	if cfg.Token == "" && !hasAllowlist {
 		log.Printf("WARNING: no token and no identity allowlist configured; all requests will be denied")
@@ -280,7 +324,7 @@ func serveAgent(ctx context.Context, cfg config.Config, local bool) error {
 		if err != nil {
 			return fmt.Errorf("listen: %w", err)
 		}
-		log.Printf("vmrc-agent listening on http://%s (local; base=%s, read globs=%v)", addr, cfg.BaseDir, cfg.ReadGlobs)
+		log.Printf("vmrc-agent listening on http://%s (local; base=%s, uploads=%s, read globs=%v)", addr, cfg.BaseDir, srv.UploadsDir, cfg.ReadGlobs)
 		return serve(ctx, srv.Handler(), ln, nil)
 	}
 
@@ -300,8 +344,8 @@ func serveAgent(ctx context.Context, cfg config.Config, local bool) error {
 	if hasAllowlist {
 		authMode = "identity allowlist"
 	}
-	log.Printf("vmrc-agent listening on %s://%s:%d (tailnet; auth=%s, base=%s, read globs=%v)",
-		tun.Scheme(), tun.FQDN(), cfg.ListenPort, authMode, cfg.BaseDir, cfg.ReadGlobs)
+	log.Printf("vmrc-agent listening on %s://%s:%d (tailnet; auth=%s, base=%s, uploads=%s, read globs=%v)",
+		tun.Scheme(), tun.FQDN(), cfg.ListenPort, authMode, cfg.BaseDir, srv.UploadsDir, cfg.ReadGlobs)
 	return serve(ctx, srv.Handler(), tun.Listener(), tun.Close)
 }
 

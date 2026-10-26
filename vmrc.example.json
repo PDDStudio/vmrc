@@ -5,6 +5,11 @@
   "bin_dir": "/var/lib/vmrc/bin",
   "read_globs": ["*.log", "logs/*.txt"],
   "listen_port": 47800,
+  "uploads_dir": "/var/lib/vmrc/files/uploads",
+  "upload_retention": "168h",
+  "retention_sweep_interval": "1h",
+  "log_max_size_mb": 10,
+  "log_max_backups": 3,
   "allowed_logins": ["you@example.com"],
   "allowed_tags": ["tag:vmrc-admin"]
 }

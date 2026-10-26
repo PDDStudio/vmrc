@@ -52,13 +52,16 @@ type Capturer interface {
 // /exec+/spawn (cwd), /get and /read (file access), and an optional Logger
 // (defaults to the standard logger, which the agent points at the console).
 type Server struct {
-	Token     string
-	Capturer  Capturer
-	Injector  Injector
-	LogDir    string
-	BaseDir   string   // root for /exec, /spawn (cwd), /get and /read; defaults to LogDir
-	ReadGlobs []string // allowlist of path globs readable via /read/ (and /logs/ alias)
-	Logger    *log.Logger
+	Token    string
+	Capturer Capturer
+	Injector Injector
+	LogDir   string
+	BaseDir  string // root for /exec, /spawn (cwd), /get and /read; defaults to LogDir
+	// UploadsDir is the root /put writes into (the agent passes
+	// <base_dir>/uploads by default). Empty falls back to the base dir.
+	UploadsDir string
+	ReadGlobs  []string // allowlist of path globs readable via /read/ (and /logs/ alias)
+	Logger     *log.Logger
 	// Authorizer gates every request. If nil, a TokenAuthorizer derived from
 	// Token is used (P3 will inject an identity-based one here).
 	Authorizer Authorizer
@@ -139,12 +142,17 @@ func (s *Server) Handler() http.Handler {
 	return mux
 }
 
-// safeJoin resolves rel against the base dir, refusing to escape it. It rejects
-// both lexical traversal (../) and symlink escape: a symlink inside base that
+// safeJoin resolves rel against the base dir, refusing to escape it.
+func (s *Server) safeJoin(rel string) (string, bool) {
+	return safeJoinUnder(s.base(), rel)
+}
+
+// safeJoinUnder resolves rel against root, refusing to escape it. It rejects
+// both lexical traversal (../) and symlink escape: a symlink inside root that
 // points outside would pass a plain prefix check, so the resolved paths are
 // compared as well.
-func (s *Server) safeJoin(rel string) (string, bool) {
-	base, err := filepath.Abs(s.base())
+func safeJoinUnder(root, rel string) (string, bool) {
+	base, err := filepath.Abs(root)
 	if err != nil {
 		return "", false
 	}
@@ -204,6 +212,14 @@ func (s *Server) base() string {
 		return s.BaseDir
 	}
 	return s.LogDir
+}
+
+// uploads returns the directory that bounds /put; falls back to the base dir.
+func (s *Server) uploads() string {
+	if s.UploadsDir != "" {
+		return s.UploadsDir
+	}
+	return s.base()
 }
 
 // authorizer returns the configured Authorizer, or a token-based default
@@ -527,8 +543,11 @@ func (s *Server) handleGet(w http.ResponseWriter, r *http.Request) {
 	http.ServeFile(w, r, full)
 }
 
-// handlePut writes the request body to ?path=<relative> within the base dir,
-// creating parent directories. Upload counterpart to /get. POST/PUT only.
+// handlePut writes the request body to ?path=<relative> within the uploads dir
+// (UploadsDir; falls back to the base dir), creating parent directories. With
+// the default layout the upload is then visible to /get, /exec and /spawn as
+// uploads/<path> relative to the base dir. Upload counterpart to /get. POST/PUT
+// only.
 func (s *Server) handlePut(w http.ResponseWriter, r *http.Request) {
 	if !s.authed(w, r) {
 		return
@@ -542,17 +561,23 @@ func (s *Server) handlePut(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "missing path", http.StatusBadRequest)
 		return
 	}
-	full, ok := s.safeJoin(rel)
+	root := s.uploads()
+	// Self-heal a removed uploads dir: safeJoinUnder resolves the root, so it
+	// must exist before the containment check.
+	if s.UploadsDir != "" {
+		if err := os.MkdirAll(root, 0o750); err != nil {
+			s.logf("put    ERROR creating uploads dir %s: %v", root, err)
+			http.Error(w, "uploads dir unavailable", http.StatusInternalServerError)
+			return
+		}
+	}
+	full, ok := safeJoinUnder(root, rel)
 	if !ok {
-		s.logf("put    DENIED %q (outside base)", rel)
+		s.logf("put    DENIED %q (outside uploads dir)", rel)
 		http.Error(w, "forbidden path", http.StatusForbidden)
 		return
 	}
-	if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	f, err := os.Create(full)
+	f, err := createWithParents(full)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -567,6 +592,24 @@ func (s *Server) handlePut(w http.ResponseWriter, r *http.Request) {
 	s.logf("put    <- %s (%d bytes)", rel, n)
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	_, _ = fmt.Fprintf(w, "wrote %d bytes to %s\n", n, rel)
+}
+
+// createWithParents creates (truncating) the file at full, making its parent
+// directories first. If the parent vanishes between MkdirAll and Create — the
+// retention sweeper may prune a directory it just emptied — it retries once.
+func createWithParents(full string) (*os.File, error) {
+	var f *os.File
+	var err error
+	for attempt := 0; attempt < 2; attempt++ {
+		if err = os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+			return nil, err
+		}
+		f, err = os.Create(full)
+		if err == nil || !errors.Is(err, os.ErrNotExist) {
+			return f, err
+		}
+	}
+	return nil, err
 }
 
 // updateStatus is the JSON reply to GET /update?check=1.

@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"time"
 )
 
 // Config holds the agent's runtime configuration.
@@ -21,6 +22,22 @@ type Config struct {
 	ListenPort    int      `json:"listen_port"`    // HTTP listen port
 	AllowedLogins []string `json:"allowed_logins"` // identity allowlist: Tailscale login names (used from P3)
 	AllowedTags   []string `json:"allowed_tags"`   // identity allowlist: ACL tags, e.g. tag:prod (used from P3)
+
+	// UploadsDir is where /put writes (default: <base_dir>/uploads, see
+	// EffectiveUploadsDir). Left empty in the written config so it keeps tracking
+	// base_dir if that moves.
+	UploadsDir string `json:"uploads_dir,omitempty"`
+	// UploadRetention is how long an uploaded file is kept (by mtime) before the
+	// background sweeper deletes it; 0 disables the sweeper.
+	UploadRetention Duration `json:"upload_retention"`
+	// RetentionSweepInterval is how often the sweeper runs (it also runs once at
+	// startup). Must be positive while UploadRetention is enabled.
+	RetentionSweepInterval Duration `json:"retention_sweep_interval"`
+	// LogMaxSizeMB rotates the agent log once it would exceed this size; 0
+	// disables rotation. LogMaxBackups is how many rotated files (agent.log.1 …)
+	// are kept.
+	LogMaxSizeMB  int `json:"log_max_size_mb"`
+	LogMaxBackups int `json:"log_max_backups"`
 
 	// Secrets — never loaded from or written to the JSON file.
 	Token       string `json:"-"` // shared-token fallback (env VMRC_TOKEN)
@@ -90,14 +107,44 @@ func ConfigPathFor(mode Mode) (string, error) {
 	return DefaultConfigPath(), nil
 }
 
+// Compiled-in defaults for the retention and log-rotation keys.
+const (
+	DefaultUploadRetention        = 7 * 24 * time.Hour
+	DefaultRetentionSweepInterval = time.Hour
+	DefaultLogMaxSizeMB           = 10
+	DefaultLogMaxBackups          = 3
+)
+
+// withOperationalDefaults fills the mode-independent defaults (port, retention,
+// log rotation) into c.
+func withOperationalDefaults(c Config) Config {
+	c.ListenPort = 47800
+	c.UploadRetention = Duration(DefaultUploadRetention)
+	c.RetentionSweepInterval = Duration(DefaultRetentionSweepInterval)
+	c.LogMaxSizeMB = DefaultLogMaxSizeMB
+	c.LogMaxBackups = DefaultLogMaxBackups
+	return c
+}
+
 // Defaults returns the compiled-in defaults for the current OS.
 func Defaults() Config {
 	p := defaultPaths(runtime.GOOS)
-	return Config{
-		StateDir:   p.StateDir,
-		BaseDir:    p.BaseDir,
-		ListenPort: 47800,
+	return withOperationalDefaults(Config{
+		StateDir: p.StateDir,
+		BaseDir:  p.BaseDir,
+	})
+}
+
+// EffectiveUploadsDir returns the directory /put writes into: UploadsDir when
+// set, otherwise <BaseDir>/uploads ("" when neither is set).
+func (c Config) EffectiveUploadsDir() string {
+	if c.UploadsDir != "" {
+		return c.UploadsDir
 	}
+	if c.BaseDir == "" {
+		return ""
+	}
+	return filepath.Join(c.BaseDir, "uploads")
 }
 
 // LoadFile overlays JSON from path onto cfg and returns the result. An empty
@@ -117,10 +164,11 @@ func LoadFile(cfg Config, path string) (Config, error) {
 	return cfg, nil
 }
 
-// EnsureDirs creates the state and base directories if they are missing.
-// StateDir holds tailnet keys, so it is created 0700; BaseDir is 0755. An empty
-// StateDir or BaseDir is skipped (callers that require them should validate
-// first). Subject to the process umask, like any MkdirAll.
+// EnsureDirs creates the state, base and uploads directories if they are
+// missing. StateDir holds tailnet keys, so it is created 0700; BaseDir is 0755;
+// the uploads dir is 0750 (uploaded payloads need not be world-readable). An
+// empty StateDir or BaseDir is skipped (callers that require them should
+// validate first). Subject to the process umask, like any MkdirAll.
 func EnsureDirs(cfg Config) error {
 	if cfg.StateDir != "" {
 		if err := os.MkdirAll(cfg.StateDir, 0o700); err != nil {
@@ -132,16 +180,22 @@ func EnsureDirs(cfg Config) error {
 			return fmt.Errorf("create base dir %q: %w", cfg.BaseDir, err)
 		}
 	}
+	if up := cfg.EffectiveUploadsDir(); up != "" {
+		if err := os.MkdirAll(up, 0o750); err != nil {
+			return fmt.Errorf("create uploads dir %q: %w", up, err)
+		}
+	}
 	return nil
 }
 
-// RequireAbsPaths fails if StateDir or BaseDir is set but not absolute. The boot
+// RequireAbsPaths fails if StateDir, BaseDir or UploadsDir is set but not absolute. The boot
 // service runs from a different working directory than the installer, so
 // relative paths would not resolve identically.
 func RequireAbsPaths(cfg Config) error {
 	for _, p := range []struct{ name, val string }{
 		{"state_dir", cfg.StateDir},
 		{"base_dir", cfg.BaseDir},
+		{"uploads_dir", cfg.UploadsDir},
 	} {
 		if p.val != "" && !filepath.IsAbs(p.val) {
 			return fmt.Errorf("%s must be an absolute path for the boot service, got %q", p.name, p.val)
@@ -160,6 +214,21 @@ func Validate(cfg Config) (warnings []string, err error) {
 	}
 	if cfg.ListenPort < 1 || cfg.ListenPort > 65535 {
 		return nil, fmt.Errorf("listen_port must be in 1..65535, got %d", cfg.ListenPort)
+	}
+	if cfg.UploadRetention < 0 {
+		return nil, fmt.Errorf("upload_retention must not be negative (0 disables), got %s", cfg.UploadRetention)
+	}
+	if cfg.RetentionSweepInterval < 0 {
+		return nil, fmt.Errorf("retention_sweep_interval must not be negative, got %s", cfg.RetentionSweepInterval)
+	}
+	if cfg.UploadRetention > 0 && cfg.RetentionSweepInterval == 0 {
+		return nil, fmt.Errorf("retention_sweep_interval must be positive while upload_retention is enabled")
+	}
+	if cfg.LogMaxSizeMB < 0 {
+		return nil, fmt.Errorf("log_max_size_mb must not be negative (0 disables rotation), got %d", cfg.LogMaxSizeMB)
+	}
+	if cfg.LogMaxBackups < 0 {
+		return nil, fmt.Errorf("log_max_backups must not be negative, got %d", cfg.LogMaxBackups)
 	}
 	if len(cfg.ReadGlobs) == 0 {
 		warnings = append(warnings, "read_globs is empty; the /read endpoint will serve no files")

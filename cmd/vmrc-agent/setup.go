@@ -17,7 +17,7 @@ func setupCommand() *cli.Command {
 	return &cli.Command{
 		Name:  "setup",
 		Usage: "one-click: write config, create dirs, enroll on the tailnet, install + start the boot service",
-		Flags: []cli.Flag{
+		Flags: append([]cli.Flag{
 			configFlag(),
 			serviceNameFlag(),
 			systemFlag(),
@@ -29,7 +29,7 @@ func setupCommand() *cli.Command {
 			&cli.StringFlag{Name: "token", Usage: "shared-token fallback (prefer the VMRC_TOKEN env var)", Sources: cli.EnvVars("VMRC_TOKEN")},
 			&cli.StringFlag{Name: "hostname", Usage: "tsnet node name on the tailnet", Sources: cli.EnvVars("VMRC_HOSTNAME")},
 			&cli.StringFlag{Name: "state-dir", Usage: "tsnet state directory", Sources: cli.EnvVars("VMRC_STATE_DIR")},
-		},
+		}, retentionFlags()...),
 		Action: setupAction,
 	}
 }
@@ -135,7 +135,7 @@ func setupAction(ctx context.Context, cmd *cli.Command) error {
 	if err := os.MkdirAll(cfg.BinDir, 0o755); err != nil {
 		return fmt.Errorf("create bin dir: %w", err)
 	}
-	fmt.Printf("ensured dirs: state=%s base=%s bin=%s\n", cfg.StateDir, cfg.BaseDir, cfg.BinDir)
+	fmt.Printf("ensured dirs: state=%s base=%s uploads=%s bin=%s\n", cfg.StateDir, cfg.BaseDir, cfg.EffectiveUploadsDir(), cfg.BinDir)
 
 	self, err := os.Executable()
 	if err != nil {
