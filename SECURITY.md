@@ -39,12 +39,17 @@ expected behavior:
   allowlists), with an optional shared bearer token as a fallback. Anyone your
   ACLs let reach the agent, and who matches the allowlist, can run commands on
   that machine — that is by design.
+- **Only the vmrc client can drive an agent, not a browser.** Every request must
+  carry the `X-Vmrc-Client` header, and requests with browser `Origin` /
+  `Sec-Fetch-*` headers are refused, so a web page on an allowlisted machine
+  can't forge requests (CSRF) or reach the agent via DNS rebinding.
 - **Secrets are supplied at runtime** via environment variables (Tailscale auth
-  key, shared token) and are never written to the config file or baked into the
-  binary.
-- **File access is bounded** to `base_dir` (uploads to `uploads_dir`) and, for reads, to a configured glob
-  allowlist; path-traversal escapes are treated as bugs.
+  key, shared token) or an owner-only `token_file`, and are never written to the
+  config file or baked into the binary.
+- **File access is bounded** to `base_dir` (uploads to `uploads_dir`);
+  path-traversal and symlink escapes are treated as bugs. `read_globs` narrows
+  only the `/read` endpoint; `get` can read anything under `base_dir`.
 
 A report that demonstrates a way to bypass any of the above — unauthenticated
-access, escaping `base_dir`, leaking a secret, or reaching the agent off-tailnet
+or browser-forged access, escaping `base_dir`, leaking a secret, or reaching the agent off-tailnet
 — is in scope and worth reporting.

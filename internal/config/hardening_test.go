@@ -115,3 +115,11 @@ func TestResolveTokenFile(t *testing.T) {
 		t.Fatal("a missing token file must be an error, not a silent deny-all")
 	}
 }
+
+func TestExampleConfigLoads(t *testing.T) {
+	// The documented example must stay loadable under strict decoding: every key
+	// in it has to be a real config key.
+	if _, err := LoadFile(Defaults(), filepath.Join("..", "..", "vmrc.example.json")); err != nil {
+		t.Fatalf("vmrc.example.json: %v", err)
+	}
+}
