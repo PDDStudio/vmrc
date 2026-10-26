@@ -137,18 +137,28 @@ func TestProgramStopRacingUnexpectedExit(t *testing.T) {
 		if d := time.Since(start); d > time.Second {
 			t.Fatalf("iteration %d: Stop blocked %s racing an unexpected exit", i, d)
 		}
-		select {
-		case <-exited:
-			// The unexpected exit won the race; Stop must report the run error.
+		// Who claimed the shutdown is recorded under the lock; onExit itself runs
+		// after the lock is released, so it may land a moment after Stop returns.
+		p.mu.Lock()
+		exitWon := p.exited
+		p.mu.Unlock()
+		if exitWon {
+			// The unexpected exit won: Stop must report the run error, and onExit
+			// must fire.
 			if err == nil {
-				t.Fatalf("iteration %d: onExit fired but Stop returned nil", i)
+				t.Fatalf("iteration %d: run exited first but Stop returned nil", i)
 			}
-		default:
+			select {
+			case <-exited:
+			case <-time.After(5 * time.Second):
+				t.Fatalf("iteration %d: run exited first but onExit never fired", i)
+			}
+		} else {
 			// Stop won; onExit must never fire afterwards.
 			select {
 			case <-exited:
 				t.Fatalf("iteration %d: onExit fired after Stop had claimed the shutdown", i)
-			case <-time.After(5 * time.Millisecond):
+			case <-time.After(20 * time.Millisecond):
 			}
 		}
 	}

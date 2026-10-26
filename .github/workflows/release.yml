@@ -10,13 +10,27 @@ on:
 
 permissions:
   contents: write
+  id-token: write          # OIDC token for build-provenance attestations
+  attestations: write
+  artifact-metadata: write
+
+# One release at a time; never cancel a release half-way through publishing.
+concurrency:
+  group: release
+  cancel-in-progress: false
 
 jobs:
   release:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v7
+      - name: Release only from main
+        if: github.ref != 'refs/heads/main'
+        run: |
+          echo "::error::releases are cut from main only (dispatched on $GITHUB_REF)"
+          exit 1
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
 
@@ -31,7 +45,7 @@ jobs:
             exit 1
           fi
 
-      - uses: actions/setup-go@v7
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
           cache: true
@@ -73,7 +87,7 @@ jobs:
           git push origin "v$RELEASE_VERSION"
 
       - name: Release
-        uses: goreleaser/goreleaser-action@v7
+        uses: goreleaser/goreleaser-action@a4f02ab5355a589de60d917a659ce617ed19b3de # v7.3.0
         with:
           distribution: goreleaser
           version: v2.19.0
@@ -81,3 +95,10 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           VMRC_RELEASE_SIGNING_KEY: ${{ secrets.VMRC_RELEASE_SIGNING_KEY }}
+
+      # SLSA build provenance for every archive (they are all listed in the
+      # signed checksums.txt). Verify with: gh attestation verify <archive> -R pddstudio/vmrc
+      - name: Attest build provenance
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-checksums: dist/checksums.txt

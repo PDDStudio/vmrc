@@ -95,6 +95,10 @@ irm https://raw.githubusercontent.com/pddstudio/vmrc/main/scripts/install.ps1 | 
 curl -fsSL https://raw.githubusercontent.com/pddstudio/vmrc/main/scripts/install.sh | VMRC_BINARY=vmrc-agent sh
 ```
 
+> These one-liners fetch the install script from `main`. To pin it, replace `main` in
+> the URL with a release tag (e.g. `v0.3.0`). Every release archive carries SLSA build
+> provenance; check one with `gh attestation verify <archive> -R pddstudio/vmrc`.
+
 Then enroll the VM by running `setup` with the auth key in the environment, and say
 who may drive it (your Tailscale login):
 
