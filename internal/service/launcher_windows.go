@@ -34,9 +34,9 @@ func (l winLauncher) Install() error {
 		return fmt.Errorf("creating task xml temp file: %w", err)
 	}
 	tmp := f.Name()
-	defer os.Remove(tmp)
+	defer func() { _ = os.Remove(tmp) }()
 	if _, err := f.Write(utf16LEBOM(taskXML(l.spec))); err != nil {
-		f.Close()
+		_ = f.Close()
 		return fmt.Errorf("writing task xml: %w", err)
 	}
 	if err := f.Close(); err != nil {

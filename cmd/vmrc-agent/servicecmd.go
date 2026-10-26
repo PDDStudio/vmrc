@@ -33,7 +33,7 @@ func serviceArgs(absConfigPath, serviceName string, mode config.Mode) []string {
 // never touched the config for control actions. It starts from the mode defaults
 // and overlays only bin_dir from the config file when it is present and parses.
 func managedBinDir(cmd *cli.Command, mode config.Mode) (string, error) {
-	base, err := config.DefaultsFor(mode)
+	base, err := config.DefaultsForLayout(mode, userLayout(cmd, mode))
 	if err != nil {
 		return "", err
 	}
@@ -144,7 +144,9 @@ func buildController(cmd *cli.Command, mode config.Mode) (controller, error) {
 		Executable: exe,
 		Args:       serviceArgs(absCfg, cmd.String("service-name"), mode),
 		User:       user,
-		Elevated:   true,
+		// Only consulted when (re)registering the Windows task: HighestAvailable
+		// unless --no-elevate (which also selected the app-data layout).
+		Elevated: !cmd.Bool(noElevateFlagName),
 	})
 	if err != nil {
 		return nil, err
@@ -152,11 +154,33 @@ func buildController(cmd *cli.Command, mode config.Mode) (controller, error) {
 	return launcherController{l}, nil
 }
 
-// preflightInstall checks elevation (per mode) and absolute paths, and warns if
-// no tsnet state exists yet (the enroll-before-install reminder). cfg is the
-// resolved config.
-func preflightInstall(mode config.Mode, cfg config.Config) error {
-	if err := requireElevatedFor(mode, "install"); err != nil {
+// elevatedTaskFor reports whether the Windows logon task cmd manages is (or
+// will be) elevated: for setup/install unless --no-elevate, otherwise when an
+// install with the protected layout exists. Used for the privilege policy.
+func elevatedTaskFor(cmd *cli.Command, mode config.Mode) bool {
+	if mode != config.ModeUser {
+		return false
+	}
+	if registersTask(cmd) {
+		return !cmd.Bool(noElevateFlagName)
+	}
+	if userLayout(cmd, mode) != config.LayoutProtected {
+		return false
+	}
+	p, err := config.ConfigPathForLayout(config.ModeUser, config.LayoutProtected)
+	if err != nil {
+		return false
+	}
+	_, err = os.Stat(p)
+	return err == nil
+}
+
+// preflightInstall checks absolute paths and that a protected install keeps
+// its binary in the admin-only dir, and warns if no tsnet state exists yet (the
+// enroll-before-install reminder). cfg is the resolved config. Elevation is
+// checked by the caller before anything is written.
+func preflightInstall(mode config.Mode, layout config.UserLayout, cfg config.Config) error {
+	if err := checkProtectedBinDir(cfg, mode, layout); err != nil {
 		return err
 	}
 	if err := config.RequireAbsPaths(cfg); err != nil {
@@ -186,14 +210,31 @@ func installCommand() *cli.Command {
 	return &cli.Command{
 		Name:  "install",
 		Usage: "register the agent as a boot service (run `setup` for one-click)",
-		Flags: []cli.Flag{configFlag(), serviceNameFlag(), systemFlag()},
+		Flags: []cli.Flag{configFlag(), serviceNameFlag(), systemFlag(), noElevateFlag()},
 		Action: func(ctx context.Context, cmd *cli.Command) error {
 			mode := resolveMode(cmd)
+			if err := validateNoElevate(cmd, mode); err != nil {
+				return err
+			}
+			if err := requireElevatedFor(mode, "install", elevatedTaskFor(cmd, mode)); err != nil {
+				return err
+			}
+			if err := refuseLayoutConflict(cmd, mode); err != nil {
+				return err
+			}
+			layout := userLayout(cmd, mode)
+			mig, err := prepareInstallLocation(cmd, mode, layout)
+			if err != nil {
+				return err
+			}
+			if mig != nil {
+				mig.report()
+			}
 			cfg, err := resolveConfigForMode(cmd, mode)
 			if err != nil {
 				return err
 			}
-			if err := preflightInstall(mode, cfg); err != nil {
+			if err := preflightInstall(mode, layout, cfg); err != nil {
 				return err
 			}
 			self, err := os.Executable()
@@ -204,8 +245,15 @@ func installCommand() *cli.Command {
 			if err != nil {
 				return err
 			}
+			if mig != nil {
+				// End the instance still running the old, user-writable binary.
+				_ = c.Control("stop")
+			}
 			if err := doInstall(cfg, self, c); err != nil {
 				return err
+			}
+			if mig != nil {
+				mig.cleanupLegacyBinary()
 			}
 			fmt.Printf("installed service %q\n", cmd.String("service-name"))
 			return nil
@@ -230,7 +278,10 @@ func uninstallCommand() *cli.Command {
 		Flags: []cli.Flag{configFlag(), serviceNameFlag(), systemFlag()},
 		Action: func(ctx context.Context, cmd *cli.Command) error {
 			mode := resolveMode(cmd)
-			if err := requireElevatedFor(mode, "uninstall"); err != nil {
+			// Deleting a task needs the rights it was registered with; which
+			// level a legacy %LOCALAPPDATA% install used is unknown, so Windows
+			// keeps requiring elevation here.
+			if err := requireElevatedFor(mode, "uninstall", mode == config.ModeUser); err != nil {
 				return err
 			}
 			c, err := buildController(cmd, mode)
@@ -253,7 +304,7 @@ func startCommand() *cli.Command {
 		Flags: []cli.Flag{configFlag(), serviceNameFlag(), systemFlag()},
 		Action: func(ctx context.Context, cmd *cli.Command) error {
 			mode := resolveMode(cmd)
-			if err := requireElevatedFor(mode, "start"); err != nil {
+			if err := requireElevatedFor(mode, "start", elevatedTaskFor(cmd, mode)); err != nil {
 				return err
 			}
 			c, err := buildController(cmd, mode)
@@ -276,7 +327,7 @@ func stopCommand() *cli.Command {
 		Flags: []cli.Flag{configFlag(), serviceNameFlag(), systemFlag()},
 		Action: func(ctx context.Context, cmd *cli.Command) error {
 			mode := resolveMode(cmd)
-			if err := requireElevatedFor(mode, "stop"); err != nil {
+			if err := requireElevatedFor(mode, "stop", elevatedTaskFor(cmd, mode)); err != nil {
 				return err
 			}
 			c, err := buildController(cmd, mode)

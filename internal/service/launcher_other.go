@@ -13,7 +13,9 @@ func newOSLauncher(spec LaunchSpec) (Launcher, error) {
 		Description: "vmrc VM remote-control agent (user session)",
 		Arguments:   spec.Args,
 		Executable:  spec.Executable,
-		Option:      ksvc.KeyValue{"UserService": true},
+		// SystemdScript only affects Linux (user unit: default.target, short
+		// RestartSec; see systemd.go); launchd ignores it.
+		Option: ksvc.KeyValue{"UserService": true, "SystemdScript": systemdUnit(true)},
 	}
 	svc, err := ksvc.New(&program{}, cfg)
 	if err != nil {

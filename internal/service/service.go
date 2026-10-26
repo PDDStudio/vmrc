@@ -54,63 +54,83 @@ func toKardianosConfig(cfg Config) *ksvc.Config {
 		Arguments:   cfg.Arguments,
 		// OnFailure is honored only on Windows; on Linux (systemd) and macOS
 		// (launchd) kardianos auto-restarts via its defaults (Restart=always /
-		// KeepAlive), so cross-platform restart still holds.
-		Option: ksvc.KeyValue{"OnFailure": "restart"},
+		// KeepAlive), so cross-platform restart still holds. SystemdScript
+		// (systemd only) shortens kardianos' 120s RestartSec; see systemd.go.
+		Option: ksvc.KeyValue{"OnFailure": "restart", "SystemdScript": systemdUnit(false)},
 	}
 }
 
 // program implements kardianos service.Interface. Start launches the run func on
 // a cancelable context and returns immediately (kardianos requires Start to be
 // non-blocking); Stop cancels and waits for it to return.
+//
+// When the run func returns, exactly one of two outcomes is claimed under mu:
+// either Stop already asked for the shutdown (stopping) and the result goes to
+// Stop via done, or the exit was unexpected (exited, with its error recorded)
+// and onExit fires. Stop arriving after an unexpected exit returns that error at
+// once instead of waiting stopTimeout for a done signal nobody will send.
 type program struct {
 	run    func(ctx context.Context) error
 	onExit func(err error) // called when run returns before Stop; nil → defaultOnExit
-	cancel context.CancelFunc
-	done   chan error
 
 	mu       sync.Mutex
+	cancel   context.CancelFunc
+	done     chan error
 	stopping bool
+	exited   bool  // run returned on its own (onExit path claimed)
+	exitErr  error // run's error when exited
 }
 
 func (p *program) Start(s ksvc.Service) error {
 	if p.run == nil {
 		return fmt.Errorf("service program has no run function")
 	}
-	if p.onExit == nil {
-		p.onExit = defaultOnExit
+	onExit := p.onExit
+	if onExit == nil {
+		onExit = defaultOnExit
 	}
 	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	p.mu.Lock()
 	p.cancel = cancel
-	p.done = make(chan error, 1)
+	p.done = done
+	p.mu.Unlock()
 	go func() {
 		err := p.run(ctx)
 		p.mu.Lock()
-		stopping := p.stopping
-		p.mu.Unlock()
-		if stopping {
-			// Expected: Stop cancelled us and is waiting on p.done.
-			p.done <- err
+		if p.stopping {
+			p.mu.Unlock()
+			// Expected: Stop cancelled us and is waiting on done.
+			done <- err
 			return
 		}
+		p.exited, p.exitErr = true, err
+		p.mu.Unlock()
 		// Unexpected: the agent stopped serving while the supervisor still
 		// thinks it is running. Surface it so the restart policy can act.
-		p.onExit(err)
+		onExit(err)
 	}()
 	return nil
 }
 
 func (p *program) Stop(s ksvc.Service) error {
 	p.mu.Lock()
-	p.stopping = true
-	p.mu.Unlock()
-	if p.cancel != nil {
-		p.cancel()
+	if p.exited {
+		err := p.exitErr
+		p.mu.Unlock()
+		return err
 	}
-	if p.done == nil {
+	p.stopping = true
+	cancel, done := p.cancel, p.done
+	p.mu.Unlock()
+	if cancel != nil {
+		cancel()
+	}
+	if done == nil {
 		return nil
 	}
 	select {
-	case err := <-p.done:
+	case err := <-done:
 		return err
 	case <-time.After(stopTimeout):
 		log.Printf("service: run func did not stop within %s", stopTimeout)

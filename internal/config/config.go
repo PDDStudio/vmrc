@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
 	"runtime"
 	"slices"
@@ -100,22 +101,25 @@ func DefaultConfigPath() string { return defaultPaths(runtime.GOOS).ConfigPath }
 // config file at <config-dir>/logs/agent.log. Deriving it from the config path
 // (rather than the install mode) is deliberate: the boot-launched `run` body is
 // given only --config, and that path is already mode-correct, so the log lands
-// in the right place for both user- and system-mode installs.
-func LogPath(configPath string) string {
-	return filepath.Join(filepath.Dir(configPath), "logs", "agent.log")
-}
+// in the right place for both user- and system-mode installs. The one exception
+// is the Linux system config dir /etc/vmrc: logs do not belong in /etc, so they
+// go to /var/log/vmrc/agent.log instead.
+func LogPath(configPath string) string { return logPathFor(runtime.GOOS, configPath) }
 
-// ConfigPathFor returns the default config-file path for the given mode:
-// the per-user agent.json for ModeUser, or the system default for ModeSystem.
-func ConfigPathFor(mode Mode) (string, error) {
-	if mode == ModeUser {
-		base, err := userAppDataDir()
-		if err != nil {
-			return "", err
-		}
-		return userPaths(runtime.GOOS, base).ConfigPath, nil
+// linuxSystemConfigDir / linuxSystemLogPath are the Linux (and other non-darwin
+// Unix) system-mode config dir and the log path used for configs inside it.
+const (
+	linuxSystemConfigDir = "/etc/vmrc"
+	linuxSystemLogPath   = "/var/log/vmrc/agent.log"
+)
+
+// logPathFor is LogPath for an explicit GOOS (pure, for tests).
+func logPathFor(goos, configPath string) string {
+	if goos != "windows" && goos != "darwin" &&
+		path.Dir(filepath.ToSlash(configPath)) == linuxSystemConfigDir {
+		return filepath.FromSlash(linuxSystemLogPath)
 	}
-	return DefaultConfigPath(), nil
+	return filepath.Join(filepath.Dir(configPath), "logs", "agent.log")
 }
 
 // Compiled-in defaults for the retention and log-rotation keys.
