@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"testing"
 
+	"tailscale.com/client/local"
 	"tailscale.com/client/tailscale/apitype"
 	"tailscale.com/tailcfg"
 )
@@ -105,7 +106,7 @@ func TestIdentityAuthorizerTaggedNodeIgnoresLoginAllowlist(t *testing.T) {
 
 func TestIdentityAuthorizerUnidentifiedReturnsErrUnidentified(t *testing.T) {
 	a := IdentityAuthorizer{
-		WhoIs:         fakeWhoIs{err: errors.New("peer not found")},
+		WhoIs:         fakeWhoIs{err: local.ErrPeerNotFound},
 		AllowedLogins: []string{"alice@example.com"},
 	}
 	req := newClientRequest("POST", "/exec", nil)
@@ -115,6 +116,19 @@ func TestIdentityAuthorizerUnidentifiedReturnsErrUnidentified(t *testing.T) {
 	}
 	if !errors.Is(err, ErrUnidentified) {
 		t.Fatalf("an unresolvable peer must yield ErrUnidentified so a chain can fall back, got %v", err)
+	}
+}
+
+func TestIdentityAuthorizerTransientWhoIsErrorDenies(t *testing.T) {
+	// Only "no such peer" may fall through to the token. A transient LocalAPI
+	// error for a peer that identity would deny must not open the token path.
+	a := IdentityAuthorizer{
+		WhoIs:         fakeWhoIs{err: errors.New("context deadline exceeded")},
+		AllowedLogins: []string{"alice@example.com"},
+	}
+	err := a.Authorize(newClientRequest("POST", "/exec", nil))
+	if err == nil || errors.Is(err, ErrUnidentified) {
+		t.Fatalf("a transient WhoIs error must be a definitive deny, got %v", err)
 	}
 }
 
@@ -158,7 +172,7 @@ func TestChainAuthorizerDeniesResolvedIdentityEvenWithValidToken(t *testing.T) {
 
 func TestChainAuthorizerFallsBackToTokenWhenUnidentified(t *testing.T) {
 	chain := ChainAuthorizer{Authorizers: []Authorizer{
-		IdentityAuthorizer{WhoIs: fakeWhoIs{err: errors.New("peer not found")}, AllowedLogins: []string{"alice@example.com"}},
+		IdentityAuthorizer{WhoIs: fakeWhoIs{err: local.ErrPeerNotFound}, AllowedLogins: []string{"alice@example.com"}},
 		funcAuthorizer(func() error { return nil }),
 	}}
 	req := newClientRequest("POST", "/exec", nil)
@@ -169,7 +183,7 @@ func TestChainAuthorizerFallsBackToTokenWhenUnidentified(t *testing.T) {
 
 func TestChainAuthorizerDeniesWhenUnidentifiedAndTokenWrong(t *testing.T) {
 	chain := ChainAuthorizer{Authorizers: []Authorizer{
-		IdentityAuthorizer{WhoIs: fakeWhoIs{err: errors.New("peer not found")}, AllowedLogins: []string{"alice@example.com"}},
+		IdentityAuthorizer{WhoIs: fakeWhoIs{err: local.ErrPeerNotFound}, AllowedLogins: []string{"alice@example.com"}},
 		funcAuthorizer(func() error { return errors.New("bad token") }),
 	}}
 	req := newClientRequest("POST", "/exec", nil)
