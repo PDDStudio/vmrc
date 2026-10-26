@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"runtime"
 
 	"github.com/pddstudio/vmrc/internal/config"
 	"github.com/pddstudio/vmrc/internal/selfupdate"
@@ -90,7 +91,19 @@ func updateAction(ctx context.Context, cmd *cli.Command) error {
 		return nil
 	}
 
-	c, err := buildController(cmd, resolveMode(cmd))
+	mode := resolveMode(cmd)
+	// An elevated Windows logon task launches its binary from an admin-only
+	// dir, so replacing it needs elevation; Unix user mode must not run as root.
+	if err := requireElevatedFor(mode, "update", elevatedTaskFor(cmd, mode)); err != nil {
+		return err
+	}
+	if runtime.GOOS == "windows" && mode == config.ModeUser && userLayout(cmd, mode) == config.LayoutAppData {
+		fmt.Fprintln(os.Stderr, "note: this install keeps its config and binary in %LOCALAPPDATA%\\vmrc (user-writable). If its logon "+
+			"task runs elevated (installs before --no-elevate existed), re-run `vmrc-agent setup` from an elevated shell to "+
+			"move them to an admin-only location.")
+	}
+
+	c, err := buildController(cmd, mode)
 	if err != nil {
 		return err
 	}

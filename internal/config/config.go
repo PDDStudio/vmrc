@@ -94,19 +94,6 @@ func logPathFor(goos, configPath string) string {
 	return filepath.Join(filepath.Dir(configPath), "logs", "agent.log")
 }
 
-// ConfigPathFor returns the default config-file path for the given mode:
-// the per-user agent.json for ModeUser, or the system default for ModeSystem.
-func ConfigPathFor(mode Mode) (string, error) {
-	if mode == ModeUser {
-		base, err := userAppDataDir()
-		if err != nil {
-			return "", err
-		}
-		return userPaths(runtime.GOOS, base).ConfigPath, nil
-	}
-	return DefaultConfigPath(), nil
-}
-
 // Defaults returns the compiled-in defaults for the current OS.
 func Defaults() Config {
 	p := defaultPaths(runtime.GOOS)

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 
 	"github.com/pddstudio/vmrc/internal/config"
 	"github.com/pddstudio/vmrc/internal/service"
@@ -21,6 +22,7 @@ func setupCommand() *cli.Command {
 			configFlag(),
 			serviceNameFlag(),
 			systemFlag(),
+			noElevateFlag(),
 			&cli.StringFlag{Name: "base-dir", Usage: "root for exec cwd, get/put and read", Sources: cli.EnvVars("VMRC_BASE_DIR")},
 			&cli.IntFlag{Name: "listen-port", Usage: "HTTP listen port", Sources: cli.EnvVars("VMRC_LISTEN_PORT")},
 			&cli.StringSliceFlag{Name: "read-glob", Usage: "allowlist glob for /read (repeatable)"},
@@ -101,11 +103,29 @@ func enrollIfNeeded(ctx context.Context, cfg config.Config) error {
 
 func setupAction(ctx context.Context, cmd *cli.Command) error {
 	mode := resolveMode(cmd)
-
-	// Elevation: system mode always; user mode needs it to register a
-	// highest-privileges logon task. Either way setup installs an autostart unit.
-	if err := service.RequireElevated(); err != nil {
+	if err := validateNoElevate(cmd, mode); err != nil {
 		return err
+	}
+
+	// Privileges: system mode needs elevation; Windows user mode needs it to
+	// register an elevated (HighestAvailable) logon task; macOS/Linux user mode
+	// must run as the target user, never under sudo (see privilegeCheck).
+	if err := requireElevatedFor(mode, "setup", elevatedTaskFor(cmd, mode)); err != nil {
+		return err
+	}
+	if err := refuseLayoutConflict(cmd, mode); err != nil {
+		return err
+	}
+
+	// Lock down (and, for a pre-hardening Windows user install, migrate) the
+	// install location before anything is read from or written into it.
+	layout := userLayout(cmd, mode)
+	mig, err := prepareInstallLocation(cmd, mode, layout)
+	if err != nil {
+		return err
+	}
+	if mig != nil {
+		mig.report()
 	}
 
 	cfg, err := resolveConfigForMode(cmd, mode)
@@ -113,6 +133,9 @@ func setupAction(ctx context.Context, cmd *cli.Command) error {
 		return err
 	}
 	if err := config.RequireAbsPaths(cfg); err != nil {
+		return err
+	}
+	if err := checkProtectedBinDir(cfg, mode, layout); err != nil {
 		return err
 	}
 
@@ -155,6 +178,11 @@ func setupAction(ctx context.Context, cmd *cli.Command) error {
 	if err != nil {
 		return err
 	}
+	if mig != nil {
+		// End the instance still running the old, user-writable binary; the
+		// re-registered task then starts the protected copy below.
+		_ = c.Control("stop")
+	}
 	if err := c.Control("install"); err != nil {
 		if st, serr := c.Status(); serr == nil {
 			fmt.Printf("autostart unit already present (%s); leaving it\n", st)
@@ -169,6 +197,44 @@ func setupAction(ctx context.Context, cmd *cli.Command) error {
 			return fmt.Errorf("starting autostart unit: %w", err)
 		}
 	}
+	if mig != nil {
+		mig.cleanupLegacyBinary()
+	}
 	fmt.Println("setup complete.")
+	printSetupHints(runtime.GOOS, mode, layout, cmd.Bool(noElevateFlagName))
+	return nil
+}
+
+// printSetupHints prints the mode-specific caveats an operator needs to know
+// after setup.
+func printSetupHints(goos string, mode config.Mode, layout config.UserLayout, noElevate bool) {
+	for _, h := range setupHints(goos, mode, layout, noElevate) {
+		fmt.Println(h)
+	}
+}
+
+// setupHints returns the post-setup notes for goos/mode (pure, for tests).
+func setupHints(goos string, mode config.Mode, layout config.UserLayout, noElevate bool) []string {
+	if mode != config.ModeUser {
+		return nil
+	}
+	switch goos {
+	case "linux":
+		return []string{
+			"note: a systemd user service runs only while you have a session. To start the agent at boot",
+			"      without logging in, enable lingering for your account once:",
+			"        loginctl enable-linger \"$USER\"   (may need sudo)",
+		}
+	case "windows":
+		if noElevate {
+			return []string{"note: the logon task runs unelevated (--no-elevate); exec runs without administrator rights."}
+		}
+		if layout == config.LayoutProtected {
+			return []string{
+				"note: the logon task runs elevated, so its config and binary live in an admin-only directory;",
+				"      edit the config and run `vmrc-agent update` from an elevated shell.",
+			}
+		}
+	}
 	return nil
 }

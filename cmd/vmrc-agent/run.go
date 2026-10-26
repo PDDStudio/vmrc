@@ -55,12 +55,13 @@ func configPath(cmd *cli.Command) string {
 }
 
 // configPathForMode returns the explicit --config value if set, otherwise the
-// default config path for the given mode.
+// default config path for the given mode (and, in user mode, the layout cmd
+// operates on — see userLayout).
 func configPathForMode(cmd *cli.Command, mode config.Mode) (string, error) {
 	if p := cmd.String("config"); p != "" {
 		return p, nil
 	}
-	return config.ConfigPathFor(mode)
+	return config.ConfigPathForLayout(mode, userLayout(cmd, mode))
 }
 
 // resolveRunConfig resolves the agent config for `run`, mode-aware: with no
@@ -89,7 +90,7 @@ func runLogPath(cmd *cli.Command) string {
 // resolveConfigForMode is resolveConfig with mode-derived defaults (used by setup
 // and the management commands).
 func resolveConfigForMode(cmd *cli.Command, mode config.Mode) (config.Config, error) {
-	base, err := config.DefaultsFor(mode)
+	base, err := config.DefaultsForLayout(mode, userLayout(cmd, mode))
 	if err != nil {
 		return config.Config{}, err
 	}
@@ -207,10 +208,18 @@ func runAction(ctx context.Context, cmd *cli.Command) error {
 	// service/boot supervisor stderr goes nowhere, so without this a
 	// start-then-stop crash leaves no trace. A logging failure is non-fatal: warn
 	// and keep going on stderr only.
+	//
+	// Before that, re-apply the Windows directory protection (DACLs) so the log
+	// file is created into — and any pre-existing install is repaired to — an
+	// admin-only directory. Its warnings are logged once logging is up.
+	hardenWarns := startupHardening(cmd)
 	logPath := runLogPath(cmd)
 	banner := fmt.Sprintf("vmrc-agent %s (commit %s) starting: pid=%d args=%v", version, commit, os.Getpid(), redactArgs(os.Args[1:]))
 	if err := setupLogging(logPath, banner); err != nil {
 		log.Printf("WARNING: file logging to %q disabled: %v", logPath, err)
+	}
+	for _, w := range hardenWarns {
+		log.Printf("WARNING: %s", w)
 	}
 
 	cfg, err := resolveRunConfig(cmd)
