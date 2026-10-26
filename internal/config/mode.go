@@ -83,12 +83,11 @@ func DefaultsFor(mode Mode) (Config, error) {
 			return Config{}, fmt.Errorf("resolving user app-data dir: %w", err)
 		}
 		p := userPaths(runtime.GOOS, base)
-		return Config{
-			StateDir:   p.StateDir,
-			BaseDir:    p.BaseDir,
-			BinDir:     p.BinDir,
-			ListenPort: 47800,
-		}, nil
+		return withOperationalDefaults(Config{
+			StateDir: p.StateDir,
+			BaseDir:  p.BaseDir,
+			BinDir:   p.BinDir,
+		}), nil
 	}
 	// system mode: reuse the legacy layout, plus a bin/ under the same root.
 	sp := defaultPaths(runtime.GOOS)
