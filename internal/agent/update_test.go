@@ -230,7 +230,7 @@ func TestUpdateRefusesUnverifiedRelease(t *testing.T) {
 			s.RestartDelay = time.Millisecond
 
 			rec := httptest.NewRecorder()
-			s.Handler().ServeHTTP(rec, httptest.NewRequest("POST", "/update?token=secret", nil))
+			s.Handler().ServeHTTP(rec, newClientRequest("POST", "/update?token=secret", nil))
 			if rec.Code == http.StatusOK {
 				t.Fatalf("code=200, want refusal; body=%s", rec.Body.String())
 			}

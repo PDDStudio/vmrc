@@ -8,9 +8,10 @@ import (
 
 func newUpdateServer(t *testing.T, current, released string) *Server {
 	t.Helper()
-	srv := fakeReleaseServer(t, released, makeAgentArchive(t, []byte("new")))
+	rel := fakeReleaseServer(t, released, makeAgentArchive(t, []byte("new")), true)
 	s, _ := newTestServer(t)
-	s.Update = UpdateConfig{Repo: "o/r", BinaryName: "vmrc-agent", Version: current, APIBase: srv.URL}
+	s.Update = rel.updateConfig()
+	s.Update.Version = current
 	s.ExitFunc = func(int) {}
 	return s
 }
