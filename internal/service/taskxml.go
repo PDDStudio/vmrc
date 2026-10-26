@@ -15,6 +15,39 @@ func xmlEscape(s string) string {
 	return b.String()
 }
 
+// quoteArg wraps a single argument in double quotes for the Windows command-line
+// parser (CommandLineToArgvW), escaping embedded quotes as \" and doubling any
+// backslashes that immediately precede a quote (or the closing quote) so they
+// are taken literally. A bare `"`+a+`"` broke whenever a contained a quote or
+// ended in a backslash.
+func quoteArg(a string) string {
+	var b strings.Builder
+	b.WriteByte('"')
+	slashes := 0
+	for i := 0; i < len(a); i++ {
+		switch c := a[i]; c {
+		case '\\':
+			slashes++
+			b.WriteByte(c)
+		case '"':
+			// Double the run of backslashes preceding this quote, then escape it.
+			for ; slashes > 0; slashes-- {
+				b.WriteByte('\\')
+			}
+			b.WriteString(`\"`)
+		default:
+			slashes = 0
+			b.WriteByte(c)
+		}
+	}
+	// Double a trailing backslash run so it doesn't escape the closing quote.
+	for ; slashes > 0; slashes-- {
+		b.WriteByte('\\')
+	}
+	b.WriteByte('"')
+	return b.String()
+}
+
 // taskXML builds a Windows Task Scheduler 1.2 definition for the per-user agent.
 // It starts the agent at logon (LogonTrigger) and keeps it alive with a
 // TimeTrigger that fires every minute indefinitely; MultipleInstancesPolicy
@@ -35,7 +68,7 @@ func taskXML(s LaunchSpec) string {
 	}
 	quoted := make([]string, 0, len(s.Args))
 	for _, a := range s.Args {
-		quoted = append(quoted, `"`+a+`"`)
+		quoted = append(quoted, quoteArg(a))
 	}
 	user := xmlEscape(s.User)
 	return fmt.Sprintf(`<?xml version="1.0" encoding="UTF-16"?>

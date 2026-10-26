@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 type fakeCapturer struct{ png []byte }
@@ -201,6 +202,26 @@ func TestSpawnReturnsPid(t *testing.T) {
 	}
 }
 
+func TestSpawnReapsChild(t *testing.T) {
+	s, _ := newTestServer(t)
+	reaped := make(chan int, 1)
+	s.spawnReaped = func(pid int) { reaped <- pid }
+	rec := httptest.NewRecorder()
+	s.Handler().ServeHTTP(rec, httptest.NewRequest("GET", "/spawn?token=secret&cmd=exit%200", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("code=%d body=%q", rec.Code, rec.Body.String())
+	}
+	// The child must be waited on so it does not linger as a zombie (on Unix a
+	// detached child whose parent never reaps stays defunct until the parent
+	// exits). The old Process.Release() path never called Wait, so this fired
+	// never.
+	select {
+	case <-reaped:
+	case <-time.After(5 * time.Second):
+		t.Fatal("spawn child was never reaped (Wait not called)")
+	}
+}
+
 func TestSpawnRequiresToken(t *testing.T) {
 	s, _ := newTestServer(t)
 	rec := httptest.NewRecorder()
@@ -243,6 +264,44 @@ func TestPutBlocksTraversal(t *testing.T) {
 	s.Handler().ServeHTTP(rec, req)
 	if rec.Code == http.StatusOK {
 		t.Fatalf("traversal must not write (code=%d)", rec.Code)
+	}
+}
+
+func TestGetBlocksSymlinkEscape(t *testing.T) {
+	base := t.TempDir()
+	outside := t.TempDir()
+	if err := os.WriteFile(filepath.Join(outside, "secret.txt"), []byte("TOPSECRET"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// A symlink inside base pointing at a directory outside it. A lexical
+	// prefix check on base/link/secret.txt passes, but following the link
+	// escapes base — safeJoin must refuse it.
+	if err := os.Symlink(outside, filepath.Join(base, "link")); err != nil {
+		t.Skipf("symlinks unsupported here: %v", err)
+	}
+	s := &Server{Token: "secret", Capturer: fakeCapturer{}, BaseDir: base}
+	rec := httptest.NewRecorder()
+	s.Handler().ServeHTTP(rec, httptest.NewRequest("GET", "/get?token=secret&path=link/secret.txt", nil))
+	if rec.Code == http.StatusOK {
+		t.Fatalf("symlink escape must not return 200 (code=%d body=%q)", rec.Code, rec.Body.String())
+	}
+}
+
+func TestPutBlocksSymlinkEscape(t *testing.T) {
+	base := t.TempDir()
+	outside := t.TempDir()
+	if err := os.Symlink(outside, filepath.Join(base, "link")); err != nil {
+		t.Skipf("symlinks unsupported here: %v", err)
+	}
+	s := &Server{Token: "secret", Capturer: fakeCapturer{}, BaseDir: base}
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest("POST", "/put?token=secret&path=link/evil.txt", strings.NewReader("x"))
+	s.Handler().ServeHTTP(rec, req)
+	if rec.Code == http.StatusOK {
+		t.Fatalf("symlink escape write must not succeed (code=%d)", rec.Code)
+	}
+	if _, err := os.Stat(filepath.Join(outside, "evil.txt")); err == nil {
+		t.Fatalf("file was written outside base through a symlink")
 	}
 }
 

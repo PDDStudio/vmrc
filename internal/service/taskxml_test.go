@@ -68,6 +68,23 @@ func TestTaskXMLWellFormed(t *testing.T) {
 	}
 }
 
+func TestTaskXMLEscapesEmbeddedQuotesInArgs(t *testing.T) {
+	doc := taskXML(LaunchSpec{
+		Executable: `C:\x.exe`,
+		Args:       []string{"run", "--config", `C:\weird"path\agent.json`},
+		User:       `D\u`,
+		Elevated:   true,
+	})
+	// The Arguments value is XML-escaped, so a bare embedded quote is still
+	// well-formed XML — the bug bites the Windows command-line parser that reads
+	// the value after XML-unescaping. The embedded quote must be backslash-
+	// escaped (\") so it does not prematurely terminate the argument; after
+	// xmlEscape that reads as `\&#34;`.
+	if !strings.Contains(doc, `\&#34;`) {
+		t.Fatalf("embedded quote not escaped for the command-line parser in:\n%s", doc)
+	}
+}
+
 func TestUTF16LEBOM(t *testing.T) {
 	got := utf16LEBOM("AB")
 	want := []byte{0xFF, 0xFE, 'A', 0x00, 'B', 0x00}

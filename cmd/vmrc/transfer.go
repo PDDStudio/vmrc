@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 
 	"github.com/pddstudio/vmrc/internal/host"
 	"github.com/urfave/cli/v3"
@@ -43,23 +44,56 @@ func getAction(ctx context.Context, cmd *cli.Command) error {
 		return err
 	}
 
-	f, err := os.Create(local)
+	n, err := downloadTo(local, rc)
 	if err != nil {
 		return err
-	}
-	n, err := io.Copy(f, rc)
-	if err != nil {
-		_ = f.Close() // best-effort; the copy error is the real failure
-		return err
-	}
-	// Close before reporting success: for a write target, a failed Close
-	// (flush/disk-full) means a truncated file, so surface it rather than
-	// claiming the download succeeded.
-	if err := f.Close(); err != nil {
-		return fmt.Errorf("close %s: %w", local, err)
 	}
 	fmt.Fprintf(os.Stderr, "wrote %d bytes to %s\n", n, local)
 	return nil
+}
+
+// downloadTo streams src into local atomically: it writes to a temp file in the
+// same directory and renames it over local only after a fully successful copy
+// and flush. A mid-transfer failure (dropped connection, disk-full on flush)
+// therefore never truncates or leaves behind a partial local file — the
+// pre-existing file, if any, is untouched. os.Create truncated the destination
+// up front, destroying it on any failure.
+func downloadTo(local string, src io.Reader) (int64, error) {
+	dir := filepath.Dir(local)
+	tmp, err := os.CreateTemp(dir, "."+filepath.Base(local)+".vmrc-*")
+	if err != nil {
+		return 0, err
+	}
+	tmpName := tmp.Name()
+	n, err := io.Copy(tmp, src)
+	if err != nil {
+		_ = tmp.Close()
+		_ = os.Remove(tmpName)
+		return n, err
+	}
+	// Flush/close before rename: a failed Close (flush/disk-full) means a
+	// truncated temp file, so surface it and discard the temp rather than
+	// promoting a corrupt file over the destination.
+	if err := tmp.Close(); err != nil {
+		_ = os.Remove(tmpName)
+		return n, fmt.Errorf("close %s: %w", tmpName, err)
+	}
+	// Fix the temp file's mode before promoting it: CreateTemp makes it 0600, but
+	// replacing an existing file must keep that file's mode (e.g. an executable
+	// stays +x) and a new file should follow os.Create semantics (0666 & ~umask).
+	mode := os.FileMode(0o666) &^ processUmask()
+	if fi, err := os.Stat(local); err == nil {
+		mode = fi.Mode().Perm()
+	}
+	if err := os.Chmod(tmpName, mode); err != nil {
+		_ = os.Remove(tmpName)
+		return n, fmt.Errorf("chmod %s: %w", tmpName, err)
+	}
+	if err := os.Rename(tmpName, local); err != nil {
+		_ = os.Remove(tmpName)
+		return n, fmt.Errorf("rename to %s: %w", local, err)
+	}
+	return n, nil
 }
 
 func putCommand() *cli.Command {

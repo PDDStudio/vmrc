@@ -16,6 +16,22 @@ import (
 // from blocking `exec --all` forever.
 const DefaultFanoutTimeout = 11 * time.Minute
 
+// FanoutTimeout returns the per-agent timeout for a fan-out operation: the
+// operator's explicit --timeout when set, otherwise DefaultFanoutTimeout for a
+// fleet-wide (--all) operation and 0 (unbounded) for an explicit target set.
+// Shared by exec and update so one reachable-but-hung node cannot stall a
+// fleet-wide command forever, while single/explicit targets keep the operator's
+// value (0 = wait forever).
+func FanoutTimeout(all bool, explicit time.Duration) time.Duration {
+	if explicit > 0 {
+		return explicit
+	}
+	if all {
+		return DefaultFanoutTimeout
+	}
+	return 0
+}
+
 // ExecResult is one agent's outcome from a fan-out exec.
 type ExecResult struct {
 	Name       string

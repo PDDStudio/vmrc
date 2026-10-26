@@ -65,6 +65,10 @@ type Server struct {
 	// execPathFn overrides os.Executable in tests so a POST /update applies to a
 	// temp file instead of the test binary. nil uses os.Executable.
 	execPathFn func() (string, error)
+	// spawnReaped, if non-nil, is called (from the reaper goroutine) after a
+	// /spawn child has been waited on and reaped. Test-only observability seam;
+	// nil in production.
+	spawnReaped func(pid int)
 }
 
 // UpdateConfig describes the running binary so the /update handler can pick the
@@ -119,7 +123,10 @@ func (s *Server) Handler() http.Handler {
 	return mux
 }
 
-// safeJoin resolves rel against the base dir, refusing to escape it.
+// safeJoin resolves rel against the base dir, refusing to escape it. It rejects
+// both lexical traversal (../) and symlink escape: a symlink inside base that
+// points outside would pass a plain prefix check, so the resolved paths are
+// compared as well.
 func (s *Server) safeJoin(rel string) (string, bool) {
 	base, err := filepath.Abs(s.base())
 	if err != nil {
@@ -129,7 +136,40 @@ func (s *Server) safeJoin(rel string) (string, bool) {
 	if err != nil || (full != base && !strings.HasPrefix(full, base+string(os.PathSeparator))) {
 		return "", false
 	}
+	// Symlink-aware containment: resolve symlinks on both base and the deepest
+	// existing ancestor of full, then re-check. base itself is resolved because
+	// temp/app roots can be symlinks (e.g. macOS /var -> /private/var). full may
+	// not exist yet (a /put target), so only its existing prefix is resolved.
+	resolvedBase, err := filepath.EvalSymlinks(base)
+	if err != nil {
+		return "", false
+	}
+	resolvedFull, err := resolveExisting(full)
+	if err != nil {
+		return "", false
+	}
+	if resolvedFull != resolvedBase && !strings.HasPrefix(resolvedFull, resolvedBase+string(os.PathSeparator)) {
+		return "", false
+	}
 	return full, true
+}
+
+// resolveExisting resolves symlinks in p. When p does not exist, it resolves the
+// deepest existing ancestor and rejoins the remaining (not-yet-created) suffix,
+// so a target whose parent chain contains a symlink is still checked.
+func resolveExisting(p string) (string, error) {
+	if resolved, err := filepath.EvalSymlinks(p); err == nil {
+		return resolved, nil
+	}
+	parent := filepath.Dir(p)
+	if parent == p {
+		return "", fmt.Errorf("cannot resolve path %q", p)
+	}
+	resolvedParent, err := resolveExisting(parent)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(resolvedParent, filepath.Base(p)), nil
 }
 
 // logf writes a status line to the console (or the injected logger in tests).
@@ -378,7 +418,18 @@ func (s *Server) handleSpawn(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	pid := c.Process.Pid
-	_ = c.Process.Release()
+	// Reap the child in the background so it does not linger as a zombie: on Unix
+	// a detached child whose parent never waits stays defunct until the parent
+	// exits. Wait does not affect the child's execution — it only collects the
+	// exit status once the child finishes — so the process still runs
+	// independently after this request returns. Replaces Process.Release(), which
+	// dropped the handle without ever reaping.
+	go func() {
+		_ = c.Wait()
+		if s.spawnReaped != nil {
+			s.spawnReaped(pid)
+		}
+	}()
 	s.logf("spawn  pid=%d (detached): %s", pid, cmdline)
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	_, _ = fmt.Fprintf(w, "spawned pid %d\n", pid)

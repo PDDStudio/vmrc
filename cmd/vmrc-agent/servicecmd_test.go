@@ -44,7 +44,7 @@ func TestDoInstallRelocatesBinaryThenRegisters(t *testing.T) {
 }
 
 func TestServiceArgs(t *testing.T) {
-	args := serviceArgs("/etc/vmrc/agent.json", "vmrc-agent")
+	args := serviceArgs("/etc/vmrc/agent.json", "vmrc-agent", config.ModeUser)
 	want := []string{"run", "--config", "/etc/vmrc/agent.json", "--service-name", "vmrc-agent"}
 	if len(args) != len(want) {
 		t.Fatalf("serviceArgs len = %d, want %d (%v)", len(args), len(want), args)
@@ -56,8 +56,31 @@ func TestServiceArgs(t *testing.T) {
 	}
 }
 
+func TestServiceArgsSystemModeIncludesSystemFlag(t *testing.T) {
+	args := serviceArgs("/etc/vmrc/agent.json", "vmrc-agent", config.ModeSystem)
+	found := false
+	for _, a := range args {
+		if a == "--system" {
+			found = true
+		}
+	}
+	if !found {
+		// Without it the boot-launched system service resolves user-mode defaults
+		// for any field the config file omits.
+		t.Fatalf("system install args must include --system: %v", args)
+	}
+}
+
+func TestServiceArgsUserModeOmitsSystemFlag(t *testing.T) {
+	for _, a := range serviceArgs("/x/agent.json", "vmrc-agent", config.ModeUser) {
+		if a == "--system" {
+			t.Fatalf("user install must not pass --system: run defaults to user mode")
+		}
+	}
+}
+
 func TestServiceArgsCustomName(t *testing.T) {
-	args := serviceArgs("/c/agent.json", "foo")
+	args := serviceArgs("/c/agent.json", "foo", config.ModeUser)
 	// the baked --service-name must match the registered name so the launched
 	// body's kardianos identity matches the installed service.
 	found := false
@@ -87,6 +110,37 @@ func TestManagedExecutablePointsAtBinDir(t *testing.T) {
 			t.Errorf("managedExecutable(%v) = %q, want managed bin path %q", mode, got, want)
 		}
 	}
+}
+
+func TestUninstallStopsRunningInstanceFirst(t *testing.T) {
+	c := &recordingController{}
+	if err := uninstallService(c); err != nil {
+		t.Fatalf("uninstallService: %v", err)
+	}
+	// A bare deregister leaves the live agent running until reboot; uninstall
+	// must stop the running instance first.
+	if len(c.calls) != 2 || c.calls[0] != "stop" || c.calls[1] != "uninstall" {
+		t.Fatalf("want [stop uninstall], got %v", c.calls)
+	}
+}
+
+func TestManagedExecutableIgnoresInvalidRuntimeConfig(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "agent.json")
+	binDir := filepath.Join(dir, "bin")
+	// A config with a valid bin_dir but an invalid runtime field (listen_port out
+	// of range). Control actions (status/stop/uninstall) only need the service
+	// path and must not fail validating runtime config.
+	writeAgentConfig(t, cfgPath, map[string]any{"bin_dir": binDir, "listen_port": 999999})
+	runWithConfig(t, cfgPath, func(cmd *cli.Command) {
+		got, err := managedExecutable(cmd, config.ModeUser)
+		if err != nil {
+			t.Fatalf("managedExecutable must not validate runtime config: %v", err)
+		}
+		if want := filepath.Join(binDir, binaryFileName()); got != want {
+			t.Fatalf("got %q want %q", got, want)
+		}
+	})
 }
 
 func TestBuildControllerUserModeUsesLauncher(t *testing.T) {

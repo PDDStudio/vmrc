@@ -14,9 +14,40 @@ import (
 
 // serviceArgs builds the OS service launch arguments. It bakes the absolute
 // config path AND the service name so the launched `run` body constructs a
-// service.Manager whose identity matches the registered service.
-func serviceArgs(absConfigPath, serviceName string) []string {
-	return []string{"run", "--config", absConfigPath, "--service-name", serviceName}
+// service.Manager whose identity matches the registered service. For a system
+// install it also bakes --system, so the boot-launched `run` (which defaults to
+// user mode) resolves system-mode defaults for any field the config file omits.
+func serviceArgs(absConfigPath, serviceName string, mode config.Mode) []string {
+	args := []string{"run", "--config", absConfigPath, "--service-name", serviceName}
+	if mode == config.ModeSystem {
+		args = append(args, "--system")
+	}
+	return args
+}
+
+// managedBinDir resolves the managed bin/ directory for mode WITHOUT loading or
+// validating runtime config. Control actions (status/stop/uninstall) and
+// executable resolution only need the service path, and must not fail because
+// the config file is unreadable or carries an invalid runtime field (e.g. an
+// out-of-range listen_port) — that regressed the old system-manager path, which
+// never touched the config for control actions. It starts from the mode defaults
+// and overlays only bin_dir from the config file when it is present and parses.
+func managedBinDir(cmd *cli.Command, mode config.Mode) (string, error) {
+	base, err := config.DefaultsFor(mode)
+	if err != nil {
+		return "", err
+	}
+	binDir := base.BinDir
+	path, err := configPathForMode(cmd, mode)
+	if err != nil {
+		return "", err
+	}
+	if _, statErr := os.Stat(path); statErr == nil {
+		if cfg, lerr := config.LoadFile(base, path); lerr == nil && cfg.BinDir != "" {
+			binDir = cfg.BinDir
+		}
+	}
+	return binDir, nil
 }
 
 // managedExecutable returns the absolute path of the relocated agent binary for
@@ -25,11 +56,11 @@ func serviceArgs(absConfigPath, serviceName string) []string {
 // it points at wherever setup happened to run from (e.g. ~/Downloads), breaks if
 // that copy moves, and never picks up updates applied to the managed copy.
 func managedExecutable(cmd *cli.Command, mode config.Mode) (string, error) {
-	cfg, err := resolveConfigForMode(cmd, mode)
+	binDir, err := managedBinDir(cmd, mode)
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(cfg.BinDir, binaryFileName()), nil
+	return filepath.Join(binDir, binaryFileName()), nil
 }
 
 // buildManager constructs a service.Manager whose launch arguments are
@@ -52,7 +83,7 @@ func buildManager(cmd *cli.Command, mode config.Mode) (*service.Manager, error) 
 		DisplayName: serviceDisplayName,
 		Description: serviceDescription,
 		Executable:  exe,
-		Arguments:   serviceArgs(abs, cmd.String("service-name")),
+		Arguments:   serviceArgs(abs, cmd.String("service-name"), mode),
 	})
 }
 
@@ -111,7 +142,7 @@ func buildController(cmd *cli.Command, mode config.Mode) (controller, error) {
 	l, err := service.NewLauncher(service.LaunchSpec{
 		Name:       cmd.String("service-name"),
 		Executable: exe,
-		Args:       serviceArgs(absCfg, cmd.String("service-name")),
+		Args:       serviceArgs(absCfg, cmd.String("service-name"), mode),
 		User:       user,
 		Elevated:   true,
 	})
@@ -182,6 +213,16 @@ func installCommand() *cli.Command {
 	}
 }
 
+// uninstallService stops any running instance before deregistering the service,
+// so `uninstall` doesn't leave the agent process alive until the next reboot: a
+// bare deregister removes the boot entry but not the live process. The stop is
+// best-effort — a not-installed or already-stopped service still uninstalls
+// cleanly — while a running one is brought down first.
+func uninstallService(c controller) error {
+	_ = c.Control("stop")
+	return c.Control("uninstall")
+}
+
 func uninstallCommand() *cli.Command {
 	return &cli.Command{
 		Name:  "uninstall",
@@ -196,7 +237,7 @@ func uninstallCommand() *cli.Command {
 			if err != nil {
 				return err
 			}
-			if err := c.Control("uninstall"); err != nil {
+			if err := uninstallService(c); err != nil {
 				return err
 			}
 			fmt.Printf("uninstalled service %q\n", cmd.String("service-name"))

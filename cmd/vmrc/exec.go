@@ -15,6 +15,12 @@ func execCommand() *cli.Command {
 		Name:      "exec",
 		Usage:     "run a command on one or more agents",
 		ArgsUsage: "<targets> -- <cmd...>   (or --all -- <cmd...>)",
+		Description: "Arguments after -- are joined into a single command line and run " +
+			"via the agent's platform shell (sh -c / cmd /c), so shell features like " +
+			"pipes and redirection work. Quoting is the caller's responsibility, as " +
+			"with `ssh host cmd args`: the local shell strips quotes before vmrc sees " +
+			"them, so quote the whole remote command to preserve embedded spaces, " +
+			"e.g. vmrc exec vm -- 'ls \"my dir\"'.",
 		Flags: []cli.Flag{
 			&cli.BoolFlag{Name: "all", Usage: "fan out to every agent matching --tag"},
 		},
@@ -68,10 +74,7 @@ func execAction(ctx context.Context, cmd *cli.Command) error {
 	// On a fleet fan-out (--all) with no explicit --timeout, bound each agent so
 	// one reachable-but-hung node can't stall the whole command indefinitely.
 	// Single/explicit-target exec keeps the operator's value (0 = wait forever).
-	timeout := cmd.Duration("timeout")
-	if cmd.Bool("all") && timeout == 0 {
-		timeout = host.DefaultFanoutTimeout
-	}
+	timeout := host.FanoutTimeout(cmd.Bool("all"), cmd.Duration("timeout"))
 
 	results := host.FanoutExec(ctx, agents, func(a host.Agent) *host.Client { return clientFor(cmd, a) }, cmdline, timeout)
 	out, code := host.FormatExec(results, len(agents) > 1)

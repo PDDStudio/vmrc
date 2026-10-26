@@ -32,6 +32,44 @@ func TestExecParsesOutputAndExitStatus(t *testing.T) {
 	}
 }
 
+func TestUpdatePost2xxDecodeFailureReportsRestarting(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// A 2xx means the agent already applied the update and is exiting to
+		// restart; the body can then be reset/truncated by the dying process. An
+		// unparseable body (a connection reset manifests the same way to the
+		// decoder) must read as "restart initiated", not a hard error.
+		w.WriteHeader(http.StatusOK)
+		_, _ = io.WriteString(w, "<<connection reset by restarting agent>>")
+	}))
+	defer srv.Close()
+	res, err := newClient(srv, "").Update(context.Background(), UpdateParams{})
+	if err != nil {
+		t.Fatalf("post-2xx decode failure must be treated as restart, not error: %v", err)
+	}
+	if !res.Restarting {
+		t.Fatalf("expected Restarting=true, got %+v", res)
+	}
+}
+
+func TestExecMalformedExitStatusIsNotSuccess(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Exit-Status", "not-a-number")
+		_, _ = io.WriteString(w, "output")
+	}))
+	defer srv.Close()
+	out, status, err := newClient(srv, "").Exec(context.Background(), "whatever")
+	if err != nil {
+		t.Fatalf("Exec err = %v", err)
+	}
+	if string(out) != "output" {
+		t.Fatalf("out = %q", out)
+	}
+	// A present-but-unparseable exit header must not silently read as 0/success.
+	if status == 0 {
+		t.Fatalf("malformed exit status must not be reported as 0, got %d", status)
+	}
+}
+
 func TestTokenSentAsBearerHeaderNotQuery(t *testing.T) {
 	var sawAuth, sawQueryToken string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

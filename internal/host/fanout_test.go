@@ -10,6 +10,21 @@ import (
 	"time"
 )
 
+func TestFanoutTimeout(t *testing.T) {
+	if got := FanoutTimeout(true, 0); got != DefaultFanoutTimeout {
+		t.Fatalf("--all with no explicit timeout: got %v, want %v", got, DefaultFanoutTimeout)
+	}
+	if got := FanoutTimeout(false, 0); got != 0 {
+		t.Fatalf("explicit target with no timeout must stay unbounded, got %v", got)
+	}
+	if got := FanoutTimeout(true, 5*time.Second); got != 5*time.Second {
+		t.Fatalf("explicit timeout must win over the --all default, got %v", got)
+	}
+	if got := FanoutTimeout(false, 5*time.Second); got != 5*time.Second {
+		t.Fatalf("explicit timeout must be honored, got %v", got)
+	}
+}
+
 // Bug 1: empty output must produce no labeled lines at all.
 func TestFormatExecEmptyOutputNoBlankLine(t *testing.T) {
 	results := []ExecResult{

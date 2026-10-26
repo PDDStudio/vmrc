@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"os/user"
 	"path/filepath"
 	"runtime"
 )
@@ -17,26 +18,57 @@ const (
 	ModeSystem Mode = "system"
 )
 
+// resolveUserDir picks the home directory user-mode installs should target,
+// given the SUDO_USER value, a lookup function, and a fallback (normally
+// os.UserHomeDir). Under sudo, os.UserHomeDir returns root's home even though a
+// user-mode install should land in the invoking user's home, so the pre-sudo
+// user is resolved when present. Extracted from userAppDataDir for testability.
+func resolveUserDir(sudoUser string, lookup func(string) (*user.User, error), fallback func() (string, error)) (string, error) {
+	if sudoUser != "" && sudoUser != "root" {
+		if u, err := lookup(sudoUser); err == nil {
+			return u.HomeDir, nil
+		}
+	}
+	return fallback()
+}
+
+// underSudo reports whether the process is running under sudo for a real
+// (non-root) invoking user on a non-Windows OS.
+func underSudo() bool {
+	if runtime.GOOS == "windows" {
+		return false
+	}
+	s := os.Getenv("SUDO_USER")
+	return s != "" && s != "root"
+}
+
+// effectiveHomeDir returns the home directory of the user the agent is being
+// installed for, honoring SUDO_USER on Unix (see resolveUserDir).
+func effectiveHomeDir() (string, error) {
+	return resolveUserDir(os.Getenv("SUDO_USER"), user.Lookup, os.UserHomeDir)
+}
+
 // userAppDataDir returns the per-user, machine-local app-data root:
 // %LOCALAPPDATA% on Windows (os.UserCacheDir), ~/Library/Application Support on
-// macOS, and $XDG_STATE_HOME or ~/.local/state on Linux.
+// macOS, and $XDG_STATE_HOME or ~/.local/state on Linux. On Unix under sudo it
+// targets the invoking user's home rather than root's.
 func userAppDataDir() (string, error) {
 	if runtime.GOOS == "windows" {
 		return os.UserCacheDir() // %LocalAppData% on Windows
 	}
-	if runtime.GOOS == "darwin" {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return "", err
-		}
-		return filepath.Join(home, "Library", "Application Support"), nil
-	}
-	if x := os.Getenv("XDG_STATE_HOME"); x != "" {
-		return x, nil
-	}
-	home, err := os.UserHomeDir()
+	home, err := effectiveHomeDir()
 	if err != nil {
 		return "", err
+	}
+	if runtime.GOOS == "darwin" {
+		return filepath.Join(home, "Library", "Application Support"), nil
+	}
+	// linux/other: honor XDG_STATE_HOME only when not under sudo — a sudo
+	// environment's XDG_STATE_HOME belongs to root, not the target user.
+	if !underSudo() {
+		if x := os.Getenv("XDG_STATE_HOME"); x != "" {
+			return x, nil
+		}
 	}
 	return filepath.Join(home, ".local", "state"), nil
 }

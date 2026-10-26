@@ -3,6 +3,7 @@ package host
 import (
 	"context"
 	"errors"
+	"net/netip"
 	"strings"
 	"testing"
 
@@ -10,6 +11,29 @@ import (
 	"tailscale.com/types/key"
 	"tailscale.com/types/views"
 )
+
+func TestAgentBaseURLPrefersDNSName(t *testing.T) {
+	a := Agent{DNSName: "vm.example.ts.net", IPs: []netip.Addr{netip.MustParseAddr("100.64.0.1")}}
+	if got := a.BaseURL("https", 47800); got != "https://vm.example.ts.net:47800" {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestAgentBaseURLFallsBackToIP(t *testing.T) {
+	// A peer without a MagicDNS name must still yield a reachable URL from its
+	// tailnet IP, not a malformed "scheme://:port".
+	a := Agent{DNSName: "", IPs: []netip.Addr{netip.MustParseAddr("100.64.0.1")}}
+	if got := a.BaseURL("http", 47800); got != "http://100.64.0.1:47800" {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestAgentBaseURLBracketsIPv6(t *testing.T) {
+	a := Agent{DNSName: "", IPs: []netip.Addr{netip.MustParseAddr("fd7a::1")}}
+	if got := a.BaseURL("http", 47800); got != "http://[fd7a::1]:47800" {
+		t.Fatalf("IPv6 host must be bracketed, got %q", got)
+	}
+}
 
 // fakeStatus is a stub statusSource returning a canned status/error.
 type fakeStatus struct {
