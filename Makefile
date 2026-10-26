@@ -15,8 +15,8 @@ GO      ?= go
 BIN_DIR ?= bin
 
 # Keep GOLANGCI_VERSION in sync with .github/workflows/ci.yml.
-GOLANGCI_VERSION ?= v2.12.2
-GOTOOLCHAIN      ?= go1.26.3
+GOLANGCI_VERSION ?= v2.15.0
+GOTOOLCHAIN      ?= go1.27.3
 
 LDFLAGS := -s -w -X main.version=$(VERSION) -X main.commit=$(COMMIT) -X main.date=$(DATE)
 BUILD   := $(GO) build -trimpath -ldflags '$(LDFLAGS)'
