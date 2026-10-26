@@ -38,17 +38,21 @@ func TestDefaultPaths(t *testing.T) {
 	}
 }
 
-func TestLogPath(t *testing.T) {
+func TestLogPathFor(t *testing.T) {
 	tests := []struct {
-		name, configPath, want string
+		name, goos, configPath, want string
 	}{
-		{"unix system", "/etc/vmrc/agent.json", filepath.FromSlash("/etc/vmrc/logs/agent.log")},
-		{"unix user", "/home/u/.local/state/vmrc/agent.json", filepath.FromSlash("/home/u/.local/state/vmrc/logs/agent.log")},
+		// Linux system mode logs under /var/log, not beside the config in /etc.
+		{"linux system", "linux", "/etc/vmrc/agent.json", filepath.FromSlash("/var/log/vmrc/agent.log")},
+		{"linux system custom name", "linux", "/etc/vmrc/other.json", filepath.FromSlash("/var/log/vmrc/agent.log")},
+		{"linux user", "linux", "/home/u/.local/state/vmrc/agent.json", filepath.FromSlash("/home/u/.local/state/vmrc/logs/agent.log")},
+		{"linux custom", "linux", "/opt/vmrc/agent.json", filepath.FromSlash("/opt/vmrc/logs/agent.log")},
+		{"darwin system", "darwin", "/Library/Application Support/vmrc/agent.json", filepath.FromSlash("/Library/Application Support/vmrc/logs/agent.log")},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := LogPath(tt.configPath); got != tt.want {
-				t.Errorf("LogPath(%q) = %q, want %q", tt.configPath, got, tt.want)
+			if got := logPathFor(tt.goos, tt.configPath); got != tt.want {
+				t.Errorf("logPathFor(%q, %q) = %q, want %q", tt.goos, tt.configPath, got, tt.want)
 			}
 		})
 	}

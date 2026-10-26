@@ -109,6 +109,13 @@ TS_AUTHKEY=tskey-... vmrc-agent setup --allow-login you@example.com
 `setup` refuses to finish without `--allow-login`, `--allow-tag`, or `--token-file`:
 an agent with none of them would deny every request.
 
+On Windows run it from an Administrator shell. On Linux/macOS run it **as the user
+the agent should run as, without `sudo`** (user mode installs a per-user service;
+`setup` refuses to run as root). For the machine-wide boot service use
+`sudo TS_AUTHKEY=tskey-... vmrc-agent setup --system` instead. A Linux user service
+only runs while that user has a session; to start it at boot run
+`loginctl enable-linger "$USER"` once (`setup` prints this hint).
+
 That's it. `setup` writes the config, copies the agent into a managed working
 directory, enrolls the VM on your tailnet, and installs + starts the service so it
 comes back automatically after a reboot or logon. The auth key is used only during
@@ -123,16 +130,38 @@ The VM now appears in `vmrc ls` on your host, ready to drive.
 
 | | Default — user mode | `--system` |
 |---|---|---|
-| Runs as | the logged-in user, in their desktop session | LocalSystem (boot service) |
-| Autostart | logon (Windows Scheduled Task; macOS/Linux user agent) | boot, before login |
-| Working dir | `%LOCALAPPDATA%\vmrc` (user-owned) | `C:\ProgramData\vmrc` (machine-wide) |
+| Runs as | the logged-in user, in their desktop session | LocalSystem / root (boot service) |
+| Autostart | logon (Windows Scheduled Task; macOS LaunchAgent; Linux `systemd --user`, at boot only with linger) | boot, before login |
+| Config + binary (Windows) | `C:\ProgramData\vmrc\users\<user>\` (admin-only) | `C:\ProgramData\vmrc\` (admin-only) |
+| State + `base_dir` (Windows) | `%LOCALAPPDATA%\vmrc\` (user-owned) | `C:\ProgramData\vmrc\` |
 | Screen capture | ✅ captures the live desktop | ❌ session-0 isolated |
-| `exec` privilege | the user, elevated (no UAC) | `SYSTEM` |
+| `exec` privilege | the user, elevated (no UAC) — or unelevated with `--no-elevate` | `SYSTEM` / root |
 | Available before login / at lock screen | ❌ (pair with auto-logon for headless) | ✅ |
 
-User mode is the default because it can see and drive the desktop. The agent's binary
-lives under `<workdir>/bin/` and `update` replaces it there (no elevation needed in
-user mode).
+User mode is the default because it can see and drive the desktop. On Windows its
+logon task runs with the user's **elevated** token, so the config file and the binary
+that task launches live in an admin-only directory (`C:\ProgramData\vmrc\users\<user>`,
+protected DACL: SYSTEM + Administrators full control, the user read-only) — otherwise
+any unelevated program of that user could swap them and be relaunched elevated.
+Consequently `setup`, `install`, `uninstall` and `update` need an elevated shell, and
+config edits must be made as Administrator. The tailnet state and `base_dir` stay in
+`%LOCALAPPDATA%\vmrc`.
+
+Pass `--no-elevate` to `setup`/`install` to opt out: the task runs with
+`LeastPrivilege` (so `exec` is **not** elevated), everything lives in
+`%LOCALAPPDATA%\vmrc`, and no elevation is needed to set up or update.
+
+> **Upgrading an older Windows install:** installs made before this layout keep the
+> config and binary in `%LOCALAPPDATA%\vmrc` while the task runs elevated. Re-run
+> `vmrc-agent setup` from an elevated shell: it moves the config to the protected
+> directory (the old file is kept as `agent.json.migrated`), installs the binary there,
+> and re-registers the task. Until then the agent logs a warning on every start.
+
+On macOS/Linux user mode keeps everything under the user's app-data dir
+(`~/Library/Application Support/vmrc`, `~/.local/state/vmrc`). The managed binary lives
+in `bin/` there and `update` replaces it. Under systemd (both modes) processes started
+via `/spawn` belong to the agent's service and are stopped together with it on
+restart, `update`, or `stop` (default `KillMode=control-group`).
 
 See [docs/runbook-windows.md](docs/runbook-windows.md) for the lower-level commands and
 where state lives.
@@ -324,6 +353,11 @@ vmrc-agent update                    # stop → replace managed binary in bin/ �
 vmrc-agent update --check            # report only
 ```
 
+(On Windows run it elevated unless the agent was installed with `--no-elevate`; on
+Linux/macOS user mode run it as the agent's user, without `sudo`.) Before replacing the
+binary the updater deletes any leftover `.vmrc-agent*.new` staging file and re-hashes
+the staged file from disk, refusing the update if either step fails.
+
 Remote agent updates (`vmrc update --all`) drive each agent's authenticated `/update`
 endpoint: the agent fetches the release itself, replaces its binary, and exits so its
 service relaunches the new binary. Moving an agent to an *older* release needs
@@ -348,7 +382,7 @@ also take a kebab-case flag on `run`/`setup` (e.g. `--upload-retention 24h`).
 | `retention_sweep_interval` | `VMRC_RETENTION_SWEEP_INTERVAL` | how often the retention sweep runs; it also runs once at startup (default `1h`) |
 | `log_max_size_mb` | `VMRC_LOG_MAX_SIZE_MB` | rotate `agent.log` once it would exceed this many MB (default `10`; `0` disables) |
 | `log_max_backups` | `VMRC_LOG_MAX_BACKUPS` | rotated logs kept as `agent.log.1` … `.N` (default `3`) |
-| `bin_dir` | — | dir holding the managed agent binary for self-update; defaults to a `bin/` beside the config/base dir |
+| `bin_dir` | — | dir holding the managed agent binary for self-update; defaults to a `bin/` beside the config file. For an elevated Windows user-mode install it must stay inside `C:\ProgramData\vmrc\users\<user>` (setup refuses otherwise) |
 | `read_globs` | — | path globs under `base_dir` the `/read` endpoint may serve (`*` never crosses `/`). `get` is not limited by it: anyone authorized can read anything under `base_dir` |
 | `listen_port` | `VMRC_LISTEN_PORT` | HTTP listen port (default `47800`) |
 | `allowed_logins` | — | identity allowlist: Tailscale login names |
@@ -373,6 +407,14 @@ error); they come from the environment, or for the token, from `token_file`:
 
 The embedded Tailscale node doesn't upload its diagnostic logs to Tailscale unless
 you set `VMRC_TAILSCALE_LOGS=1` (useful when working with Tailscale support).
+
+### Agent log
+
+The agent logs every request — **including the full command line of each `exec` and
+`spawn`** — to `<config-dir>/logs/agent.log` (Linux system mode:
+`/var/log/vmrc/agent.log`; override with `--log-file` / `VMRC_LOG_FILE`). Don't put
+secrets on remote command lines. The log is created owner-only (dir `0700`, file
+`0600`; on Windows it sits in the admin-only install dir).
 
 ## Building from source
 

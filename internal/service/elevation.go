@@ -21,6 +21,10 @@ func (e *NotElevatedError) Error() string {
 	return "insufficient privileges to manage the system service: " + e.Hint
 }
 
+// IsElevated reports whether the process is elevated (Administrator token or
+// SYSTEM on Windows, root elsewhere).
+func IsElevated() bool { return probeElevated() }
+
 // RequireElevated returns a *NotElevatedError unless the process is elevated.
 func RequireElevated() error {
 	if probeElevated() {

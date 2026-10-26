@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/pddstudio/vmrc/internal/config"
@@ -30,8 +29,8 @@ func TestRunLogPathIsModeAware(t *testing.T) {
 	if userPath == "" || userPath == sysPath {
 		t.Fatalf("run log path must be mode-aware: user=%q system=%q", userPath, sysPath)
 	}
-	if !strings.Contains(sysPath, filepath.Dir(config.DefaultConfigPath())) {
-		t.Fatalf("--system log path %q must sit under the system config dir", sysPath)
+	if want := config.LogPath(config.DefaultConfigPath()); sysPath != want {
+		t.Fatalf("--system log path %q, want the system log path %q", sysPath, want)
 	}
 }
 

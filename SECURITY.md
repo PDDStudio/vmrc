@@ -49,7 +49,20 @@ expected behavior:
 - **File access is bounded** to `base_dir` (uploads to `uploads_dir`);
   path-traversal and symlink escapes are treated as bugs. `read_globs` narrows
   only the `/read` endpoint; `get` can read anything under `base_dir`.
-
+- **Command lines are logged.** The agent's request log records the full
+  command line of every `exec`/`spawn` (operator visibility is a feature), so
+  anything typed on a remote command line — including credentials — ends up
+  in it. The log is owner-only (`0600` in a `0700` dir; on Windows inside the
+  admin-only install directory); Linux system mode writes it to
+  `/var/log/vmrc/agent.log`.
+- **Install locations are admin-only where the agent runs privileged.** On
+  Windows, `C:\ProgramData\vmrc` (system mode: tailnet node key, config, log,
+  binary) carries a protected DACL granting only SYSTEM and Administrators,
+  and an elevated user-mode logon task launches its binary and config from
+  `C:\ProgramData\vmrc\users\<user>` (same DACL plus read for that user). The
+  agent re-applies these on every start. A non-admin local account being able
+  to read the node key, or to change what an elevated/SYSTEM agent executes,
+  is in scope.
 - **Self-updates are signature-verified.** See [Release signing](#release-signing).
 
 ## Release signing

@@ -8,9 +8,18 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sync"
 
 	"github.com/pddstudio/vmrc/internal/config"
+)
+
+// Log file permissions. The request log records every exec/spawn command line
+// (which may carry credentials an operator typed), so it is owner-only. On
+// Windows mode bits are ignored; the directory DACL (config.SecureDir) applies.
+const (
+	logDirPerm  os.FileMode = 0o700
+	logFilePerm os.FileMode = 0o600
 )
 
 // setupLogging tees the standard logger to both stderr and a size-rotated,
@@ -25,12 +34,16 @@ import (
 // so the file begins with the compiled-in rotation defaults; the caller applies
 // the configured log_max_size_mb / log_max_backups via SetLimits afterwards.
 //
+// A newly created log dir is 0700 and the file is 0600; an existing file left
+// world-readable by an older version is tightened to 0600. An existing dir is
+// left alone (an explicit --log-file may point into a shared dir like /var/log).
+//
 // The file is intentionally left open for the lifetime of the process: the
 // agent is long-running, and not closing it means a final log.Fatal still lands
 // in the file (os.Exit skips deferred closes). The OS reclaims the descriptor on
 // exit; file writes are unbuffered syscalls, so nothing is lost.
 func setupLogging(path, banner string) (*rotatingFile, error) {
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), logDirPerm); err != nil {
 		return nil, fmt.Errorf("create log dir: %w", err)
 	}
 	rf, err := openRotatingFile(path, megabytes(config.DefaultLogMaxSizeMB), config.DefaultLogMaxBackups)
@@ -70,9 +83,14 @@ func openRotatingFile(path string, maxBytes int64, maxBackups int) (*rotatingFil
 }
 
 func (r *rotatingFile) open() error {
-	f, err := os.OpenFile(r.path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	f, err := os.OpenFile(r.path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, logFilePerm)
 	if err != nil {
 		return fmt.Errorf("open log file %q: %w", r.path, err)
+	}
+	if runtime.GOOS != "windows" {
+		if err := f.Chmod(logFilePerm); err != nil {
+			fmt.Fprintf(os.Stderr, "warning: tightening log file %q to %o: %v\n", r.path, logFilePerm, err)
+		}
 	}
 	info, err := f.Stat()
 	if err != nil {

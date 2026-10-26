@@ -5,6 +5,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -68,6 +69,45 @@ func TestSetupLoggingAppends(t *testing.T) {
 	got := string(b)
 	if !strings.Contains(got, "FIRST") || !strings.Contains(got, "SECOND") {
 		t.Errorf("expected both banners (append mode); got:\n%s", got)
+	}
+}
+
+func TestSetupLoggingIsOwnerOnly(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("mode bits are not used on Windows (the dir DACL applies)")
+	}
+	restoreLogger(t)
+	dir := filepath.Join(t.TempDir(), "logs")
+	path := filepath.Join(dir, "agent.log")
+	if _, err := setupLogging(path, "x"); err != nil {
+		t.Fatalf("setupLogging: %v", err)
+	}
+	if st, err := os.Stat(dir); err != nil || st.Mode().Perm() != 0o700 {
+		t.Errorf("log dir mode = %v (err %v), want 0700", st.Mode().Perm(), err)
+	}
+	if st, err := os.Stat(path); err != nil || st.Mode().Perm() != 0o600 {
+		t.Errorf("log file mode = %v (err %v), want 0600", st.Mode().Perm(), err)
+	}
+}
+
+func TestSetupLoggingTightensExistingFile(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("mode bits are not used on Windows (the dir DACL applies)")
+	}
+	restoreLogger(t)
+	path := filepath.Join(t.TempDir(), "agent.log")
+	// A log left world-readable by an older version.
+	if err := os.WriteFile(path, []byte("old\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(path, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := setupLogging(path, "x"); err != nil {
+		t.Fatalf("setupLogging: %v", err)
+	}
+	if st, _ := os.Stat(path); st.Mode().Perm() != 0o600 {
+		t.Errorf("existing log file mode = %v, want 0600", st.Mode().Perm())
 	}
 }
 

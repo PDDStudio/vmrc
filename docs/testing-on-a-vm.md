@@ -23,9 +23,11 @@ $env:TS_AUTHKEY = "tskey-..."
 .\vmrc-agent.exe setup
 ```
 `setup` defaults to **user-session mode**: it copies the binary into
-`%LOCALAPPDATA%\vmrc\bin`, writes `%LOCALAPPDATA%\vmrc\agent.json`, enrolls the
-node, and registers a **logon Scheduled Task** that runs the agent in your desktop
-session (with highest privileges, so `exec` is elevated). Confirm it's up:
+`C:\ProgramData\vmrc\users\<you>\bin`, writes `C:\ProgramData\vmrc\users\<you>\agent.json`
+(both admin-only, because the task runs elevated), keeps state and files in
+`%LOCALAPPDATA%\vmrc`, enrolls the node, and registers a **logon Scheduled Task** that
+runs the agent in your desktop session (with highest privileges, so `exec` is
+elevated; pass `--no-elevate` for an unelevated task). Confirm it's up:
 ```powershell
 .\vmrc-agent.exe status
 ```
@@ -75,9 +77,10 @@ rejoined the tailnet from its saved `state/`. For unattended/headless VMs, enabl
 ## Troubleshooting
 
 - **Agent starts then immediately stops:** read the log file. The agent tees all
-  output to `<config-dir>\logs\agent.log` — `%LOCALAPPDATA%\vmrc\logs\agent.log`
-  in user mode, `C:\ProgramData\vmrc\logs\agent.log` with `--system` (on
-  Linux/macOS it sits next to the config likewise). Each start writes a banner
+  output to `<config-dir>\logs\agent.log` — `C:\ProgramData\vmrc\users\<you>\logs\agent.log`
+  in user mode (`%LOCALAPPDATA%\vmrc\logs\agent.log` with `--no-elevate`),
+  `C:\ProgramData\vmrc\logs\agent.log` with `--system` (on Linux/macOS it sits next
+  to the config likewise, except Linux `--system`: `/var/log/vmrc/agent.log`). Each start writes a banner
   (version/pid/args); the line(s) after it — a config error, a tunnel-bringup
   failure, or a `PANIC:` stack — are the reason it exited. Override the path with
   `--log-file` / `VMRC_LOG_FILE`. The log rotates at `log_max_size_mb` (default
@@ -92,6 +95,9 @@ rejoined the tailnet from its saved `state/`. For unattended/headless VMs, enabl
   the logon task is actually running (`.\vmrc-agent.exe status`).
 - **Screenshot can't work at all:** you likely installed with `--system` (the agent
   runs in session 0 and can't see the desktop). Use the default user mode instead.
-- **State/permissions (user mode):** the working dir is `%LOCALAPPDATA%\vmrc`,
-  owned by the logged-in user — no special ACLs needed. (`--system` mode uses
-  `C:\ProgramData\vmrc`, readable by LocalSystem.)
+- **State/permissions:** user mode keeps state and files in `%LOCALAPPDATA%\vmrc`
+  (owned by the logged-in user) and config + binary in
+  `C:\ProgramData\vmrc\users\<you>` (SYSTEM + Administrators full control, you
+  read-only). `--system` uses `C:\ProgramData\vmrc` (SYSTEM + Administrators only).
+  The agent re-applies these ACLs on every start; check with `icacls`. See the
+  runbook's "State location and permissions".
