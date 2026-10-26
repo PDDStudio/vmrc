@@ -42,7 +42,7 @@ expected behavior:
 - **Secrets are supplied at runtime** via environment variables (Tailscale auth
   key, shared token) and are never written to the config file or baked into the
   binary.
-- **File access is bounded** to `base_dir` and, for reads, to a configured glob
+- **File access is bounded** to `base_dir` (uploads to `uploads_dir`) and, for reads, to a configured glob
   allowlist; path-traversal escapes are treated as bugs.
 
 A report that demonstrates a way to bypass any of the above — unauthenticated

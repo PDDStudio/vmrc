@@ -171,8 +171,14 @@ vmrc click buildbox 640 300              # click at absolute screen pixels
 vmrc type  buildbox "hello world"        # type literal text
 vmrc key   buildbox "Enter"              # press a key / combo (Tab, Ctrl+C, Alt+F4…)
 vmrc get buildbox:C:\out\app.zip ./app.zip
-vmrc put ./tool.exe buildbox:C:\tools\tool.exe
+vmrc put ./tool.exe buildbox:tools/tool.exe   # lands in the agent's uploads dir
+vmrc exec buildbox -- uploads\tools\tool.exe --version
 ```
+
+`put` writes into the agent's **uploads dir** (`uploads_dir`, default
+`<base_dir>/uploads`), not the base dir: `exec`/`spawn` run in `base_dir`, so they see
+an upload at `uploads/<path>`, and `vmrc get buildbox:uploads/<path>` fetches it back.
+Uploads older than `upload_retention` (default 7 days) are deleted automatically.
 
 Discovery uses your system Tailscale (there's no agent list to maintain). Auth is by
 your tailnet identity — an agent that allowlists you needs no token; for token-fallback
@@ -243,18 +249,29 @@ you pass `--pre`.
 ## Agent configuration
 
 `vmrc-agent` reads config with precedence **flag → env → JSON file → default**.
-See [`vmrc.example.json`](./vmrc.example.json) for a template.
+See [`vmrc.example.json`](./vmrc.example.json) for a template. Keys with an env override
+also take a kebab-case flag on `run`/`setup` (e.g. `--upload-retention 24h`).
 
 | Key | Env override | Meaning |
 |---|---|---|
 | `hostname` | `VMRC_HOSTNAME` | tsnet node name on the tailnet; if empty/omitted, defaults to a DNS-sanitized form of the machine's OS hostname (falling back to `vmrc-agent`) |
 | `state_dir` | `VMRC_STATE_DIR` | tsnet state dir (must be absolute) |
-| `base_dir` | `VMRC_BASE_DIR` | root for `exec` cwd, `get`/`put`, `read` (must be absolute) |
+| `base_dir` | `VMRC_BASE_DIR` | root for `exec` cwd, `get`, `read` (must be absolute) |
+| `uploads_dir` | `VMRC_UPLOADS_DIR` | where `put` writes (must be absolute; default `<base_dir>/uploads`, created `0750` at startup) |
+| `upload_retention` | `VMRC_UPLOAD_RETENTION` | delete uploads whose mtime is older than this Go duration (default `168h`; `0` disables) |
+| `retention_sweep_interval` | `VMRC_RETENTION_SWEEP_INTERVAL` | how often the retention sweep runs; it also runs once at startup (default `1h`) |
+| `log_max_size_mb` | `VMRC_LOG_MAX_SIZE_MB` | rotate `agent.log` once it would exceed this many MB (default `10`; `0` disables) |
+| `log_max_backups` | `VMRC_LOG_MAX_BACKUPS` | rotated logs kept as `agent.log.1` … `.N` (default `3`) |
 | `bin_dir` | — | dir holding the managed agent binary for self-update; defaults to a `bin/` beside the config/base dir |
 | `read_globs` | — | allowlist of readable path globs under `base_dir` |
 | `listen_port` | `VMRC_LISTEN_PORT` | HTTP listen port (default `47800`) |
 | `allowed_logins` | — | identity allowlist: Tailscale login names |
 | `allowed_tags` | — | identity allowlist: ACL tags, e.g. `tag:vmrc-admin` |
+
+The retention sweep only removes regular files and symlinks under `uploads_dir` (judged
+by their own mtime — symlinks are never followed) and then prunes directories it left
+empty; it never deletes `uploads_dir` itself. Each sweep that removes something logs a
+one-line summary.
 
 **Secrets are env-only and never read from or written to the JSON file:**
 
