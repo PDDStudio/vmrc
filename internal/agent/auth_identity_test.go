@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"net/http"
-	"net/http/httptest"
 	"testing"
 
 	"tailscale.com/client/tailscale/apitype"
@@ -43,7 +42,7 @@ func TestIdentityAuthorizerAllowsAllowlistedLogin(t *testing.T) {
 		WhoIs:         fakeWhoIs{resp: userWho("alice@example.com")},
 		AllowedLogins: []string{"alice@example.com"},
 	}
-	req := httptest.NewRequest("GET", "/exec", nil)
+	req := newClientRequest("POST", "/exec", nil)
 	if err := a.Authorize(req); err != nil {
 		t.Fatalf("allowlisted login must be authorized, got %v", err)
 	}
@@ -54,7 +53,7 @@ func TestIdentityAuthorizerRejectsNonAllowlistedLogin(t *testing.T) {
 		WhoIs:         fakeWhoIs{resp: userWho("mallory@evil.com")},
 		AllowedLogins: []string{"alice@example.com"},
 	}
-	req := httptest.NewRequest("GET", "/exec", nil)
+	req := newClientRequest("POST", "/exec", nil)
 	err := a.Authorize(req)
 	if err == nil {
 		t.Fatal("non-allowlisted login must be denied")
@@ -69,7 +68,7 @@ func TestIdentityAuthorizerAllowsAllowlistedTag(t *testing.T) {
 		WhoIs:       fakeWhoIs{resp: taggedWho("tag:prod")},
 		AllowedTags: []string{"tag:prod"},
 	}
-	req := httptest.NewRequest("GET", "/exec", nil)
+	req := newClientRequest("POST", "/exec", nil)
 	if err := a.Authorize(req); err != nil {
 		t.Fatalf("allowlisted tag must be authorized, got %v", err)
 	}
@@ -80,7 +79,7 @@ func TestIdentityAuthorizerRejectsNonAllowlistedTag(t *testing.T) {
 		WhoIs:       fakeWhoIs{resp: taggedWho("tag:dev")},
 		AllowedTags: []string{"tag:prod"},
 	}
-	req := httptest.NewRequest("GET", "/exec", nil)
+	req := newClientRequest("POST", "/exec", nil)
 	err := a.Authorize(req)
 	if err == nil {
 		t.Fatal("non-allowlisted tag must be denied")
@@ -98,7 +97,7 @@ func TestIdentityAuthorizerTaggedNodeIgnoresLoginAllowlist(t *testing.T) {
 		AllowedLogins: []string{"tagged-devices"},
 		AllowedTags:   []string{"tag:prod"},
 	}
-	req := httptest.NewRequest("GET", "/exec", nil)
+	req := newClientRequest("POST", "/exec", nil)
 	if err := a.Authorize(req); err == nil {
 		t.Fatal("tagged node must be matched by tag, not login")
 	}
@@ -109,7 +108,7 @@ func TestIdentityAuthorizerUnidentifiedReturnsErrUnidentified(t *testing.T) {
 		WhoIs:         fakeWhoIs{err: errors.New("peer not found")},
 		AllowedLogins: []string{"alice@example.com"},
 	}
-	req := httptest.NewRequest("GET", "/exec", nil)
+	req := newClientRequest("POST", "/exec", nil)
 	err := a.Authorize(req)
 	if err == nil {
 		t.Fatal("a WhoIs failure must not authorize")
@@ -131,7 +130,7 @@ func TestChainAuthorizerAllowsWhenIdentityAllows(t *testing.T) {
 		IdentityAuthorizer{WhoIs: fakeWhoIs{resp: userWho("alice@example.com")}, AllowedLogins: []string{"alice@example.com"}},
 		funcAuthorizer(func() error { tokenCalled = true; return errors.New("token mismatch") }),
 	}}
-	req := httptest.NewRequest("GET", "/exec", nil)
+	req := newClientRequest("POST", "/exec", nil)
 	if err := chain.Authorize(req); err != nil {
 		t.Fatalf("chain must allow when identity allows, got %v", err)
 	}
@@ -148,7 +147,7 @@ func TestChainAuthorizerDeniesResolvedIdentityEvenWithValidToken(t *testing.T) {
 		IdentityAuthorizer{WhoIs: fakeWhoIs{resp: userWho("mallory@evil.com")}, AllowedLogins: []string{"alice@example.com"}},
 		funcAuthorizer(func() error { tokenCalled = true; return nil }),
 	}}
-	req := httptest.NewRequest("GET", "/exec", nil)
+	req := newClientRequest("POST", "/exec", nil)
 	if err := chain.Authorize(req); err == nil {
 		t.Fatal("a resolved, non-allowlisted identity must be denied even with a valid token")
 	}
@@ -162,7 +161,7 @@ func TestChainAuthorizerFallsBackToTokenWhenUnidentified(t *testing.T) {
 		IdentityAuthorizer{WhoIs: fakeWhoIs{err: errors.New("peer not found")}, AllowedLogins: []string{"alice@example.com"}},
 		funcAuthorizer(func() error { return nil }),
 	}}
-	req := httptest.NewRequest("GET", "/exec", nil)
+	req := newClientRequest("POST", "/exec", nil)
 	if err := chain.Authorize(req); err != nil {
 		t.Fatalf("chain must fall back to token for an unidentified peer, got %v", err)
 	}
@@ -173,7 +172,7 @@ func TestChainAuthorizerDeniesWhenUnidentifiedAndTokenWrong(t *testing.T) {
 		IdentityAuthorizer{WhoIs: fakeWhoIs{err: errors.New("peer not found")}, AllowedLogins: []string{"alice@example.com"}},
 		funcAuthorizer(func() error { return errors.New("bad token") }),
 	}}
-	req := httptest.NewRequest("GET", "/exec", nil)
+	req := newClientRequest("POST", "/exec", nil)
 	if err := chain.Authorize(req); err == nil {
 		t.Fatal("chain must deny when the peer is unidentified and the token is wrong")
 	}
@@ -183,11 +182,11 @@ func TestChainAuthorizerDeniesWhenUnidentifiedAndTokenWrong(t *testing.T) {
 // regardless of whether a WhoIs client is available.
 func TestAuthorizerForNoAllowlistIsTokenOnly(t *testing.T) {
 	a := AuthorizerFor(fakeWhoIs{resp: userWho("alice@example.com")}, nil, nil, "secret")
-	good := httptest.NewRequest("GET", "/exec?token=secret", nil)
+	good := newClientRequest("POST", "/exec?token=secret", nil)
 	if err := a.Authorize(good); err != nil {
 		t.Fatalf("right token must be authorized, got %v", err)
 	}
-	bad := httptest.NewRequest("GET", "/exec?token=nope", nil)
+	bad := newClientRequest("POST", "/exec?token=nope", nil)
 	if err := a.Authorize(bad); err == nil {
 		t.Fatal("wrong token must be denied")
 	}
@@ -197,7 +196,7 @@ func TestAuthorizerForNoAllowlistIsTokenOnly(t *testing.T) {
 // with no token at all.
 func TestAuthorizerForAllowlistAllowsIdentityWithoutToken(t *testing.T) {
 	a := AuthorizerFor(fakeWhoIs{resp: userWho("alice@example.com")}, []string{"alice@example.com"}, nil, "")
-	req := httptest.NewRequest("GET", "/exec", nil)
+	req := newClientRequest("POST", "/exec", nil)
 	if err := a.Authorize(req); err != nil {
 		t.Fatalf("allowlisted identity must be authorized without a token, got %v", err)
 	}
@@ -207,7 +206,7 @@ func TestAuthorizerForAllowlistAllowsIdentityWithoutToken(t *testing.T) {
 // valid token (identity governs).
 func TestAuthorizerForAllowlistDeniesIdentityEvenWithToken(t *testing.T) {
 	a := AuthorizerFor(fakeWhoIs{resp: userWho("mallory@evil.com")}, []string{"alice@example.com"}, nil, "secret")
-	req := httptest.NewRequest("GET", "/exec?token=secret", nil)
+	req := newClientRequest("POST", "/exec?token=secret", nil)
 	if err := a.Authorize(req); err == nil {
 		t.Fatal("non-allowlisted identity must be denied even with a valid token")
 	}
@@ -217,11 +216,11 @@ func TestAuthorizerForAllowlistDeniesIdentityEvenWithToken(t *testing.T) {
 // be enforced, so AuthorizerFor falls back to token-only behavior.
 func TestAuthorizerForAllowlistWithoutWhoIsIsTokenOnly(t *testing.T) {
 	a := AuthorizerFor(nil, []string{"alice@example.com"}, nil, "secret")
-	good := httptest.NewRequest("GET", "/exec?token=secret", nil)
+	good := newClientRequest("POST", "/exec?token=secret", nil)
 	if err := a.Authorize(good); err != nil {
 		t.Fatalf("right token must be authorized when no WhoIs is available, got %v", err)
 	}
-	bad := httptest.NewRequest("GET", "/exec?token=nope", nil)
+	bad := newClientRequest("POST", "/exec?token=nope", nil)
 	if err := a.Authorize(bad); err == nil {
 		t.Fatal("wrong token must be denied")
 	}

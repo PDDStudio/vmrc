@@ -109,17 +109,17 @@ func (s *Server) executable() (string, error) {
 // Handler returns the HTTP mux for all endpoints.
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
-	mux.HandleFunc("/screenshot", s.handleScreenshot)
-	mux.HandleFunc("/click", s.handleClick)
-	mux.HandleFunc("/type", s.handleType)
-	mux.HandleFunc("/key", s.handleKey)
-	mux.HandleFunc("/read/", s.handleRead)
-	mux.HandleFunc("/logs/", s.handleRead) // backward-compatible alias
-	mux.HandleFunc("/exec", s.handleExec)
-	mux.HandleFunc("/spawn", s.handleSpawn)
-	mux.HandleFunc("/get", s.handleGet)
-	mux.HandleFunc("/put", s.handlePut)
-	mux.HandleFunc("/update", s.handleUpdate)
+	mux.HandleFunc("/screenshot", s.guard(readOnly, s.handleScreenshot))
+	mux.HandleFunc("/click", s.guard(sideEffects, s.handleClick))
+	mux.HandleFunc("/type", s.guard(sideEffects, s.handleType))
+	mux.HandleFunc("/key", s.guard(sideEffects, s.handleKey))
+	mux.HandleFunc("/read/", s.guard(readOnly, s.handleRead))
+	mux.HandleFunc("/logs/", s.guard(readOnly, s.handleRead)) // backward-compatible alias
+	mux.HandleFunc("/exec", s.guard(sideEffects, s.handleExec))
+	mux.HandleFunc("/spawn", s.guard(sideEffects, s.handleSpawn))
+	mux.HandleFunc("/get", s.guard(readOnly, s.handleGet))
+	mux.HandleFunc("/put", s.guard(upload, s.handlePut))
+	mux.HandleFunc("/update", s.guard(update, s.handleUpdate))
 	return mux
 }
 

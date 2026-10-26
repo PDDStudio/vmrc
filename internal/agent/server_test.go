@@ -26,7 +26,7 @@ func newTestServer(t *testing.T) (*Server, string) {
 func TestScreenshotRequiresToken(t *testing.T) {
 	s, _ := newTestServer(t)
 	rec := httptest.NewRecorder()
-	s.Handler().ServeHTTP(rec, httptest.NewRequest("GET", "/screenshot", nil))
+	s.Handler().ServeHTTP(rec, newClientRequest("GET", "/screenshot", nil))
 	if rec.Code != http.StatusForbidden {
 		t.Fatalf("no token: code = %d, want 403", rec.Code)
 	}
@@ -35,7 +35,7 @@ func TestScreenshotRequiresToken(t *testing.T) {
 func TestScreenshotOK(t *testing.T) {
 	s, _ := newTestServer(t)
 	rec := httptest.NewRecorder()
-	s.Handler().ServeHTTP(rec, httptest.NewRequest("GET", "/screenshot?token=secret", nil))
+	s.Handler().ServeHTTP(rec, newClientRequest("GET", "/screenshot?token=secret", nil))
 	if rec.Code != http.StatusOK || rec.Body.String() != "PNGDATA" {
 		t.Fatalf("code=%d body=%q", rec.Code, rec.Body.String())
 	}
@@ -47,7 +47,7 @@ func TestScreenshotOK(t *testing.T) {
 func TestReadServesGlobMatchedFile(t *testing.T) {
 	s, _ := newTestServer(t)
 	rec := httptest.NewRecorder()
-	s.Handler().ServeHTTP(rec, httptest.NewRequest("GET", "/read/error.log?token=secret", nil))
+	s.Handler().ServeHTTP(rec, newClientRequest("GET", "/read/error.log?token=secret", nil))
 	if rec.Code != http.StatusOK || rec.Body.String() != "boom" {
 		t.Fatalf("code=%d body=%q", rec.Code, rec.Body.String())
 	}
@@ -56,7 +56,7 @@ func TestReadServesGlobMatchedFile(t *testing.T) {
 func TestLogsAliasStillServes(t *testing.T) {
 	s, _ := newTestServer(t)
 	rec := httptest.NewRecorder()
-	s.Handler().ServeHTTP(rec, httptest.NewRequest("GET", "/logs/error.log?token=secret", nil))
+	s.Handler().ServeHTTP(rec, newClientRequest("GET", "/logs/error.log?token=secret", nil))
 	if rec.Code != http.StatusOK || rec.Body.String() != "boom" {
 		t.Fatalf("alias /logs/ should still serve: code=%d body=%q", rec.Code, rec.Body.String())
 	}
@@ -68,7 +68,7 @@ func TestReadBlocksNonMatchingGlob(t *testing.T) {
 		t.Fatal(err)
 	}
 	rec := httptest.NewRecorder()
-	s.Handler().ServeHTTP(rec, httptest.NewRequest("GET", "/read/passwd?token=secret", nil))
+	s.Handler().ServeHTTP(rec, newClientRequest("GET", "/read/passwd?token=secret", nil))
 	if rec.Code == http.StatusOK {
 		t.Fatalf("file not matching any glob must not be served (code=%d)", rec.Code)
 	}
@@ -77,7 +77,7 @@ func TestReadBlocksNonMatchingGlob(t *testing.T) {
 func TestReadBlocksTraversal(t *testing.T) {
 	s, _ := newTestServer(t)
 	rec := httptest.NewRecorder()
-	s.Handler().ServeHTTP(rec, httptest.NewRequest("GET", "/read/..%2f..%2fsecret?token=secret", nil))
+	s.Handler().ServeHTTP(rec, newClientRequest("GET", "/read/..%2f..%2fsecret?token=secret", nil))
 	if rec.Code == http.StatusOK {
 		t.Fatalf("traversal must not return 200")
 	}
@@ -86,7 +86,7 @@ func TestReadBlocksTraversal(t *testing.T) {
 func TestReadRequiresToken(t *testing.T) {
 	s, _ := newTestServer(t)
 	rec := httptest.NewRecorder()
-	s.Handler().ServeHTTP(rec, httptest.NewRequest("GET", "/read/error.log", nil))
+	s.Handler().ServeHTTP(rec, newClientRequest("GET", "/read/error.log", nil))
 	if rec.Code != http.StatusForbidden {
 		t.Fatalf("no token: code = %d, want 403", rec.Code)
 	}
@@ -95,7 +95,7 @@ func TestReadRequiresToken(t *testing.T) {
 func TestScreenshotWrongToken(t *testing.T) {
 	s, _ := newTestServer(t)
 	rec := httptest.NewRecorder()
-	s.Handler().ServeHTTP(rec, httptest.NewRequest("GET", "/screenshot?token=wrong", nil))
+	s.Handler().ServeHTTP(rec, newClientRequest("GET", "/screenshot?token=wrong", nil))
 	if rec.Code != http.StatusForbidden {
 		t.Fatalf("wrong token: code = %d, want 403", rec.Code)
 	}
@@ -105,7 +105,7 @@ func TestAuthedRejectsEmptyServerToken(t *testing.T) {
 	s := &Server{Token: "", Capturer: fakeCapturer{png: []byte("x")}, BaseDir: t.TempDir()}
 	rec := httptest.NewRecorder()
 	// Even an empty token in the request must be rejected when the server token is empty.
-	s.Handler().ServeHTTP(rec, httptest.NewRequest("GET", "/screenshot?token=", nil))
+	s.Handler().ServeHTTP(rec, newClientRequest("GET", "/screenshot?token=", nil))
 	if rec.Code != http.StatusForbidden {
 		t.Fatalf("empty server token must always deny: code = %d, want 403", rec.Code)
 	}
@@ -114,7 +114,7 @@ func TestAuthedRejectsEmptyServerToken(t *testing.T) {
 func TestExecRunsCommand(t *testing.T) {
 	s, _ := newTestServer(t)
 	rec := httptest.NewRecorder()
-	s.Handler().ServeHTTP(rec, httptest.NewRequest("GET", "/exec?token=secret&cmd=echo%20hello", nil))
+	s.Handler().ServeHTTP(rec, newClientRequest("POST", "/exec?token=secret&cmd=echo%20hello", nil))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("code = %d, want 200", rec.Code)
 	}
@@ -129,7 +129,7 @@ func TestExecRunsCommand(t *testing.T) {
 func TestExecRequiresToken(t *testing.T) {
 	s, _ := newTestServer(t)
 	rec := httptest.NewRecorder()
-	s.Handler().ServeHTTP(rec, httptest.NewRequest("GET", "/exec?cmd=echo%20hello", nil))
+	s.Handler().ServeHTTP(rec, newClientRequest("POST", "/exec?cmd=echo%20hello", nil))
 	if rec.Code != http.StatusForbidden {
 		t.Fatalf("no token: code = %d, want 403", rec.Code)
 	}
@@ -138,7 +138,7 @@ func TestExecRequiresToken(t *testing.T) {
 func TestExecMissingCmd(t *testing.T) {
 	s, _ := newTestServer(t)
 	rec := httptest.NewRecorder()
-	s.Handler().ServeHTTP(rec, httptest.NewRequest("GET", "/exec?token=secret", nil))
+	s.Handler().ServeHTTP(rec, newClientRequest("POST", "/exec?token=secret", nil))
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("missing cmd: code = %d, want 400", rec.Code)
 	}
@@ -148,7 +148,7 @@ func TestExecNonzeroExitReported(t *testing.T) {
 	s, _ := newTestServer(t)
 	rec := httptest.NewRecorder()
 	// `exit 3` returns status 3 on the shell.
-	s.Handler().ServeHTTP(rec, httptest.NewRequest("GET", "/exec?token=secret&cmd=exit%203", nil))
+	s.Handler().ServeHTTP(rec, newClientRequest("POST", "/exec?token=secret&cmd=exit%203", nil))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("code = %d, want 200 (output is returned even on nonzero exit)", rec.Code)
 	}
@@ -164,7 +164,7 @@ func TestGetServesFileWithinBase(t *testing.T) {
 	}
 	s := &Server{Token: "secret", Capturer: fakeCapturer{}, BaseDir: base}
 	rec := httptest.NewRecorder()
-	s.Handler().ServeHTTP(rec, httptest.NewRequest("GET", "/get?token=secret&path=out.bin", nil))
+	s.Handler().ServeHTTP(rec, newClientRequest("GET", "/get?token=secret&path=out.bin", nil))
 	if rec.Code != http.StatusOK || rec.Body.String() != "PACKED" {
 		t.Fatalf("code=%d body=%q", rec.Code, rec.Body.String())
 	}
@@ -174,7 +174,7 @@ func TestGetRequiresToken(t *testing.T) {
 	base := t.TempDir()
 	s := &Server{Token: "secret", Capturer: fakeCapturer{}, BaseDir: base}
 	rec := httptest.NewRecorder()
-	s.Handler().ServeHTTP(rec, httptest.NewRequest("GET", "/get?path=out.bin", nil))
+	s.Handler().ServeHTTP(rec, newClientRequest("GET", "/get?path=out.bin", nil))
 	if rec.Code != http.StatusForbidden {
 		t.Fatalf("no token: code = %d, want 403", rec.Code)
 	}
@@ -184,7 +184,7 @@ func TestGetBlocksTraversal(t *testing.T) {
 	base := t.TempDir()
 	s := &Server{Token: "secret", Capturer: fakeCapturer{}, BaseDir: base}
 	rec := httptest.NewRecorder()
-	s.Handler().ServeHTTP(rec, httptest.NewRequest("GET", "/get?token=secret&path=../../../../etc/hosts", nil))
+	s.Handler().ServeHTTP(rec, newClientRequest("GET", "/get?token=secret&path=../../../../etc/hosts", nil))
 	if rec.Code == http.StatusOK {
 		t.Fatalf("traversal must not return 200 (code=%d)", rec.Code)
 	}
@@ -193,7 +193,7 @@ func TestGetBlocksTraversal(t *testing.T) {
 func TestSpawnReturnsPid(t *testing.T) {
 	s, _ := newTestServer(t)
 	rec := httptest.NewRecorder()
-	s.Handler().ServeHTTP(rec, httptest.NewRequest("GET", "/spawn?token=secret&cmd=exit%200", nil))
+	s.Handler().ServeHTTP(rec, newClientRequest("POST", "/spawn?token=secret&cmd=exit%200", nil))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("code = %d, want 200", rec.Code)
 	}
@@ -207,7 +207,7 @@ func TestSpawnReapsChild(t *testing.T) {
 	reaped := make(chan int, 1)
 	s.spawnReaped = func(pid int) { reaped <- pid }
 	rec := httptest.NewRecorder()
-	s.Handler().ServeHTTP(rec, httptest.NewRequest("GET", "/spawn?token=secret&cmd=exit%200", nil))
+	s.Handler().ServeHTTP(rec, newClientRequest("POST", "/spawn?token=secret&cmd=exit%200", nil))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("code=%d body=%q", rec.Code, rec.Body.String())
 	}
@@ -225,7 +225,7 @@ func TestSpawnReapsChild(t *testing.T) {
 func TestSpawnRequiresToken(t *testing.T) {
 	s, _ := newTestServer(t)
 	rec := httptest.NewRecorder()
-	s.Handler().ServeHTTP(rec, httptest.NewRequest("GET", "/spawn?cmd=exit%200", nil))
+	s.Handler().ServeHTTP(rec, newClientRequest("POST", "/spawn?cmd=exit%200", nil))
 	if rec.Code != http.StatusForbidden {
 		t.Fatalf("no token: code = %d, want 403", rec.Code)
 	}
@@ -235,7 +235,7 @@ func TestPutWritesFileWithinBase(t *testing.T) {
 	base := t.TempDir()
 	s := &Server{Token: "secret", Capturer: fakeCapturer{}, BaseDir: base}
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest("POST", "/put?token=secret&path=sub/up.txt", strings.NewReader("HELLO"))
+	req := newClientRequest("POST", "/put?token=secret&path=sub/up.txt", strings.NewReader("HELLO"))
 	s.Handler().ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("code=%d body=%q", rec.Code, rec.Body.String())
@@ -250,7 +250,7 @@ func TestPutRejectsGet(t *testing.T) {
 	base := t.TempDir()
 	s := &Server{Token: "secret", Capturer: fakeCapturer{}, BaseDir: base}
 	rec := httptest.NewRecorder()
-	s.Handler().ServeHTTP(rec, httptest.NewRequest("GET", "/put?token=secret&path=x", nil))
+	s.Handler().ServeHTTP(rec, newClientRequest("GET", "/put?token=secret&path=x", nil))
 	if rec.Code != http.StatusMethodNotAllowed {
 		t.Fatalf("GET /put: code=%d, want 405", rec.Code)
 	}
@@ -260,7 +260,7 @@ func TestPutBlocksTraversal(t *testing.T) {
 	base := t.TempDir()
 	s := &Server{Token: "secret", Capturer: fakeCapturer{}, BaseDir: base}
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest("POST", "/put?token=secret&path=../escape.txt", strings.NewReader("x"))
+	req := newClientRequest("POST", "/put?token=secret&path=../escape.txt", strings.NewReader("x"))
 	s.Handler().ServeHTTP(rec, req)
 	if rec.Code == http.StatusOK {
 		t.Fatalf("traversal must not write (code=%d)", rec.Code)
@@ -281,7 +281,7 @@ func TestGetBlocksSymlinkEscape(t *testing.T) {
 	}
 	s := &Server{Token: "secret", Capturer: fakeCapturer{}, BaseDir: base}
 	rec := httptest.NewRecorder()
-	s.Handler().ServeHTTP(rec, httptest.NewRequest("GET", "/get?token=secret&path=link/secret.txt", nil))
+	s.Handler().ServeHTTP(rec, newClientRequest("GET", "/get?token=secret&path=link/secret.txt", nil))
 	if rec.Code == http.StatusOK {
 		t.Fatalf("symlink escape must not return 200 (code=%d body=%q)", rec.Code, rec.Body.String())
 	}
@@ -295,7 +295,7 @@ func TestPutBlocksSymlinkEscape(t *testing.T) {
 	}
 	s := &Server{Token: "secret", Capturer: fakeCapturer{}, BaseDir: base}
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest("POST", "/put?token=secret&path=link/evil.txt", strings.NewReader("x"))
+	req := newClientRequest("POST", "/put?token=secret&path=link/evil.txt", strings.NewReader("x"))
 	s.Handler().ServeHTTP(rec, req)
 	if rec.Code == http.StatusOK {
 		t.Fatalf("symlink escape write must not succeed (code=%d)", rec.Code)
@@ -312,7 +312,7 @@ func TestReadBlocksDirectory(t *testing.T) {
 	}
 	s := &Server{Token: "secret", Capturer: fakeCapturer{}, BaseDir: base, ReadGlobs: []string{"sub", "*"}}
 	rec := httptest.NewRecorder()
-	s.Handler().ServeHTTP(rec, httptest.NewRequest("GET", "/read/sub?token=secret", nil))
+	s.Handler().ServeHTTP(rec, newClientRequest("GET", "/read/sub?token=secret", nil))
 	if rec.Code == http.StatusOK {
 		t.Fatalf("directory must not be served (code=%d)", rec.Code)
 	}
@@ -325,7 +325,7 @@ func TestGetBlocksDirectory(t *testing.T) {
 	}
 	s := &Server{Token: "secret", Capturer: fakeCapturer{}, BaseDir: base}
 	rec := httptest.NewRecorder()
-	s.Handler().ServeHTTP(rec, httptest.NewRequest("GET", "/get?token=secret&path=sub", nil))
+	s.Handler().ServeHTTP(rec, newClientRequest("GET", "/get?token=secret&path=sub", nil))
 	if rec.Code == http.StatusOK {
 		t.Fatalf("directory must not be served via /get (code=%d)", rec.Code)
 	}
@@ -337,7 +337,7 @@ func TestLogsAliasDeniesNonMatchingGlob(t *testing.T) {
 		t.Fatal(err)
 	}
 	rec := httptest.NewRecorder()
-	s.Handler().ServeHTTP(rec, httptest.NewRequest("GET", "/logs/passwd?token=secret", nil))
+	s.Handler().ServeHTTP(rec, newClientRequest("GET", "/logs/passwd?token=secret", nil))
 	if rec.Code == http.StatusOK {
 		t.Fatalf("/logs/ alias must also deny non-matching globs (code=%d)", rec.Code)
 	}
@@ -351,7 +351,7 @@ func (e errCapturer) Capture() ([]byte, error) { return nil, e.err }
 func TestScreenshotNoInteractiveSessionReturns409(t *testing.T) {
 	s := &Server{Token: "secret", Capturer: errCapturer{err: ErrNoInteractiveSession}}
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/screenshot?token=secret", nil)
+	req := newClientRequest(http.MethodGet, "/screenshot?token=secret", nil)
 	s.Handler().ServeHTTP(rec, req)
 	if rec.Code != http.StatusConflict {
 		t.Fatalf("got status %d, want 409", rec.Code)
@@ -361,7 +361,7 @@ func TestScreenshotNoInteractiveSessionReturns409(t *testing.T) {
 func TestScreenshotOtherErrorReturns500(t *testing.T) {
 	s := &Server{Token: "secret", Capturer: errCapturer{err: errors.New("boom")}}
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/screenshot?token=secret", nil)
+	req := newClientRequest(http.MethodGet, "/screenshot?token=secret", nil)
 	s.Handler().ServeHTTP(rec, req)
 	if rec.Code != http.StatusInternalServerError {
 		t.Fatalf("got status %d, want 500", rec.Code)

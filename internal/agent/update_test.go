@@ -92,7 +92,7 @@ func fakeReleaseServer(t *testing.T, tag string, archive []byte) *httptest.Serve
 func TestUpdateNotConfigured(t *testing.T) {
 	s, _ := newTestServer(t) // Update.Repo == ""
 	rec := httptest.NewRecorder()
-	s.Handler().ServeHTTP(rec, httptest.NewRequest("GET", "/update?check=1&token=secret", nil))
+	s.Handler().ServeHTTP(rec, newClientRequest("GET", "/update?check=1&token=secret", nil))
 	if rec.Code != http.StatusNotImplemented {
 		t.Fatalf("not configured: code=%d, want 501", rec.Code)
 	}
@@ -102,7 +102,7 @@ func TestUpdateRequiresToken(t *testing.T) {
 	s, _ := newTestServer(t)
 	s.Update = UpdateConfig{Repo: "o/r", BinaryName: "vmrc-agent", Version: "v0.1.0"}
 	rec := httptest.NewRecorder()
-	s.Handler().ServeHTTP(rec, httptest.NewRequest("GET", "/update?check=1", nil))
+	s.Handler().ServeHTTP(rec, newClientRequest("GET", "/update?check=1", nil))
 	if rec.Code != http.StatusForbidden {
 		t.Fatalf("no token: code=%d, want 403", rec.Code)
 	}
@@ -114,7 +114,7 @@ func TestUpdateCheck(t *testing.T) {
 	s.Update = UpdateConfig{Repo: "o/r", BinaryName: "vmrc-agent", Version: "v0.1.0", APIBase: srv.URL}
 
 	rec := httptest.NewRecorder()
-	s.Handler().ServeHTTP(rec, httptest.NewRequest("GET", "/update?check=1&token=secret", nil))
+	s.Handler().ServeHTTP(rec, newClientRequest("GET", "/update?check=1&token=secret", nil))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("code=%d body=%s", rec.Code, rec.Body.String())
 	}
@@ -141,7 +141,7 @@ func TestUpdateApplyAndRestart(t *testing.T) {
 	s.RestartDelay = time.Millisecond
 
 	rec := httptest.NewRecorder()
-	s.Handler().ServeHTTP(rec, httptest.NewRequest("POST", "/update?token=secret", nil))
+	s.Handler().ServeHTTP(rec, newClientRequest("POST", "/update?token=secret", nil))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("code=%d body=%s", rec.Code, rec.Body.String())
 	}
