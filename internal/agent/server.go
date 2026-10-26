@@ -557,10 +557,6 @@ func (s *Server) handlePut(w http.ResponseWriter, r *http.Request) {
 	if !s.authed(w, r) {
 		return
 	}
-	if r.Method != http.MethodPost && r.Method != http.MethodPut {
-		http.Error(w, "use POST or PUT", http.StatusMethodNotAllowed)
-		return
-	}
 	rel := r.URL.Query().Get("path")
 	if rel == "" {
 		http.Error(w, "missing path", http.StatusBadRequest)
@@ -582,15 +578,28 @@ func (s *Server) handlePut(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "forbidden path", http.StatusForbidden)
 		return
 	}
-	f, err := createWithParents(full)
+	// Write to a temp file beside the target and rename it into place only once
+	// the whole body arrived, so a dropped transfer never truncates or corrupts
+	// an existing file (the CLI's get side does the same).
+	f, err := createTempWithParents(full)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	tmp := f.Name()
 	n, err := io.Copy(f, r.Body)
-	cerr := f.Close()
-	if err != nil || cerr != nil {
-		s.logf("put    ERROR %s: %v %v", rel, err, cerr)
+	if cerr := f.Close(); err == nil {
+		err = cerr
+	}
+	if err == nil {
+		err = os.Chmod(tmp, 0o644) // CreateTemp makes it 0600; keep os.Create's mode
+	}
+	if err == nil {
+		err = os.Rename(tmp, full)
+	}
+	if err != nil {
+		_ = os.Remove(tmp)
+		s.logf("put    ERROR %s: %v", rel, err)
 		http.Error(w, "write failed", http.StatusInternalServerError)
 		return
 	}
@@ -599,17 +608,19 @@ func (s *Server) handlePut(w http.ResponseWriter, r *http.Request) {
 	_, _ = fmt.Fprintf(w, "wrote %d bytes to %s\n", n, rel)
 }
 
-// createWithParents creates (truncating) the file at full, making its parent
-// directories first. If the parent vanishes between MkdirAll and Create — the
-// retention sweeper may prune a directory it just emptied — it retries once.
-func createWithParents(full string) (*os.File, error) {
+// createTempWithParents creates a temp file next to full (same directory, so
+// the final rename is atomic), making the parent directories first. If the
+// parent vanishes in between — the retention sweeper may prune a directory it
+// just emptied — it retries once.
+func createTempWithParents(full string) (*os.File, error) {
+	dir, name := filepath.Split(full)
 	var f *os.File
 	var err error
 	for attempt := 0; attempt < 2; attempt++ {
-		if err = os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+		if err = os.MkdirAll(dir, 0o755); err != nil {
 			return nil, err
 		}
-		f, err = os.Create(full)
+		f, err = os.CreateTemp(dir, "."+name+".vmrc-put-*")
 		if err == nil || !errors.Is(err, os.ErrNotExist) {
 			return f, err
 		}
