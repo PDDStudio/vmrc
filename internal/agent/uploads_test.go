@@ -23,7 +23,7 @@ func newUploadsServer(t *testing.T) (s *Server, base, uploads string) {
 
 func doPut(s *Server, path, body string) *httptest.ResponseRecorder {
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest("PUT", "/put?token=secret&path="+path, strings.NewReader(body))
+	req := newClientRequest("PUT", "/put?token=secret&path="+path, strings.NewReader(body))
 	s.Handler().ServeHTTP(rec, req)
 	return rec
 }
@@ -60,7 +60,7 @@ func TestPutUploadIsReadableViaGetUnderUploadsPrefix(t *testing.T) {
 		t.Fatalf("put code=%d", rec.Code)
 	}
 	rec := httptest.NewRecorder()
-	s.Handler().ServeHTTP(rec, httptest.NewRequest("GET", "/get?token=secret&path=uploads/x/y.txt", nil))
+	s.Handler().ServeHTTP(rec, newClientRequest("GET", "/get?token=secret&path=uploads/x/y.txt", nil))
 	if rec.Code != http.StatusOK || rec.Body.String() != "DATA" {
 		t.Fatalf("get uploads/x/y.txt: code=%d body=%q", rec.Code, rec.Body.String())
 	}
