@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -23,7 +24,7 @@ func newUploadsServer(t *testing.T) (s *Server, base, uploads string) {
 
 func doPut(s *Server, path, body string) *httptest.ResponseRecorder {
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest("PUT", "/put?token=secret&path="+path, strings.NewReader(body))
+	req := newClientRequest("PUT", "/put?token=secret&path="+path, strings.NewReader(body))
 	s.Handler().ServeHTTP(rec, req)
 	return rec
 }
@@ -60,7 +61,7 @@ func TestPutUploadIsReadableViaGetUnderUploadsPrefix(t *testing.T) {
 		t.Fatalf("put code=%d", rec.Code)
 	}
 	rec := httptest.NewRecorder()
-	s.Handler().ServeHTTP(rec, httptest.NewRequest("GET", "/get?token=secret&path=uploads/x/y.txt", nil))
+	s.Handler().ServeHTTP(rec, newClientRequest("GET", "/get?token=secret&path=uploads/x/y.txt", nil))
 	if rec.Code != http.StatusOK || rec.Body.String() != "DATA" {
 		t.Fatalf("get uploads/x/y.txt: code=%d body=%q", rec.Code, rec.Body.String())
 	}
@@ -121,5 +122,39 @@ func TestPutWithoutUploadsDirFallsBackToBase(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(base, "f.txt")); err != nil {
 		t.Fatalf("fallback upload missing: %v", err)
+	}
+}
+
+type failingBody struct{ sent bool }
+
+func (b *failingBody) Read(p []byte) (int, error) {
+	if !b.sent {
+		b.sent = true
+		return copy(p, "partial"), nil
+	}
+	return 0, errors.New("connection reset")
+}
+
+func TestPutFailedTransferKeepsExistingFile(t *testing.T) {
+	s, base := newTestServer(t)
+	s.UploadsDir = filepath.Join(base, "uploads")
+	target := filepath.Join(s.UploadsDir, "app.bin")
+	if err := os.MkdirAll(s.UploadsDir, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(target, []byte("previous good version"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	rec := httptest.NewRecorder()
+	s.Handler().ServeHTTP(rec, newClientRequest("POST", "/put?token=secret&path=app.bin", &failingBody{}))
+	if rec.Code == http.StatusOK {
+		t.Fatal("a failed transfer must not report success")
+	}
+	if b, _ := os.ReadFile(target); string(b) != "previous good version" {
+		t.Fatalf("a failed upload truncated/corrupted the existing file: %q", b)
+	}
+	entries, _ := os.ReadDir(s.UploadsDir)
+	if len(entries) != 1 {
+		t.Fatalf("temp file left behind: %v", entries)
 	}
 }

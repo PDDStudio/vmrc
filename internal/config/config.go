@@ -4,12 +4,17 @@
 package config
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
+	"strings"
 	"time"
+
+	"github.com/pddstudio/vmrc/internal/protocol"
 )
 
 // Config holds the agent's runtime configuration.
@@ -38,6 +43,12 @@ type Config struct {
 	// are kept.
 	LogMaxSizeMB  int `json:"log_max_size_mb"`
 	LogMaxBackups int `json:"log_max_backups"`
+
+	// TokenFile names a file holding the shared token (owner-only permissions
+	// on Unix). It's how a boot/logon service gets a token without putting it
+	// in a machine-wide environment variable or its command line. VMRC_TOKEN /
+	// --token take precedence.
+	TokenFile string `json:"token_file,omitempty"`
 
 	// Secrets — never loaded from or written to the JSON file.
 	Token       string `json:"-"` // shared-token fallback (env VMRC_TOKEN)
@@ -147,6 +158,31 @@ func (c Config) EffectiveUploadsDir() string {
 	return filepath.Join(c.BaseDir, "uploads")
 }
 
+// checkUploadsDir refuses an uploads dir whose expiry would delete files that
+// weren't uploaded: a filesystem root, the user's home, or base_dir itself or
+// one of its ancestors (the sweeper removes everything old under the dir).
+func checkUploadsDir(cfg Config) error {
+	dir := filepath.Clean(cfg.EffectiveUploadsDir())
+	if dir == "" || dir == "." {
+		return nil
+	}
+	bad := func(why string) error {
+		return fmt.Errorf("uploads_dir %s is %s; upload retention would delete files under it (use a dedicated dir, or set upload_retention to 0)", dir, why)
+	}
+	if filepath.Dir(dir) == dir {
+		return bad("a filesystem root")
+	}
+	if home, err := os.UserHomeDir(); err == nil && dir == filepath.Clean(home) {
+		return bad("your home directory")
+	}
+	if base := filepath.Clean(cfg.BaseDir); cfg.BaseDir != "" {
+		if rel, err := filepath.Rel(dir, base); err == nil && (rel == "." || !strings.HasPrefix(rel, "..")) {
+			return bad("base_dir or a parent of it")
+		}
+	}
+	return nil
+}
+
 // LoadFile overlays JSON from path onto cfg and returns the result. An empty
 // path is a no-op. Keys absent from the JSON keep their value in cfg; secret
 // fields (json:"-") are never affected.
@@ -158,10 +194,49 @@ func LoadFile(cfg Config, path string) (Config, error) {
 	if err != nil {
 		return cfg, err
 	}
-	if err := json.Unmarshal(b, &cfg); err != nil {
-		return cfg, err
+	var keys map[string]json.RawMessage
+	if err := json.Unmarshal(b, &keys); err != nil {
+		return cfg, fmt.Errorf("%s: %w", path, err)
+	}
+	for _, k := range []string{"token", "auth_key", "authkey", "github_token"} {
+		if _, ok := keys[k]; ok {
+			return cfg, fmt.Errorf("%s: %q: secrets are not read from the config file (use token_file, or the VMRC_TOKEN / TS_AUTHKEY / GITHUB_TOKEN env vars)", path, k)
+		}
+	}
+	// Unknown keys are an error: a typo'd allowed_login would otherwise be
+	// ignored and leave the agent denying everything.
+	dec := json.NewDecoder(bytes.NewReader(b))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&cfg); err != nil {
+		return cfg, fmt.Errorf("%s: %w", path, err)
 	}
 	return cfg, nil
+}
+
+// ResolveToken fills Token from TokenFile when no token came from the flag or
+// environment. A token file that is missing, empty, or readable by other users
+// (Unix) is an error rather than a silent deny-all or a leaked secret.
+func (c *Config) ResolveToken() error {
+	if c.Token != "" || c.TokenFile == "" {
+		return nil
+	}
+	info, err := os.Stat(c.TokenFile)
+	if err != nil {
+		return fmt.Errorf("token_file: %w", err)
+	}
+	if runtime.GOOS != "windows" && info.Mode().Perm()&0o077 != 0 {
+		return fmt.Errorf("token_file %s is accessible by other users (mode %s); chmod 600 it", c.TokenFile, info.Mode().Perm())
+	}
+	b, err := os.ReadFile(c.TokenFile)
+	if err != nil {
+		return fmt.Errorf("token_file: %w", err)
+	}
+	tok := strings.TrimSpace(string(b))
+	if tok == "" {
+		return fmt.Errorf("token_file %s is empty", c.TokenFile)
+	}
+	c.Token = tok
+	return nil
 }
 
 // EnsureDirs creates the state, base and uploads directories if they are
@@ -230,8 +305,19 @@ func Validate(cfg Config) (warnings []string, err error) {
 	if cfg.LogMaxBackups < 0 {
 		return nil, fmt.Errorf("log_max_backups must not be negative, got %d", cfg.LogMaxBackups)
 	}
+	if cfg.UploadRetention > 0 {
+		if err := checkUploadsDir(cfg); err != nil {
+			return nil, err
+		}
+	}
 	if len(cfg.ReadGlobs) == 0 {
 		warnings = append(warnings, "read_globs is empty; the /read endpoint will serve no files")
+	}
+	if len(cfg.AllowedLogins) == 0 && len(cfg.AllowedTags) == 0 && cfg.Token == "" && cfg.TokenFile == "" {
+		warnings = append(warnings, "no allowed_logins, allowed_tags, or token configured; the agent will deny every request")
+	}
+	if slices.Contains(cfg.AllowedTags, protocol.AgentTag) {
+		warnings = append(warnings, fmt.Sprintf("allowed_tags includes %s, the tag agents themselves carry: every agent can drive every other one", protocol.AgentTag))
 	}
 	return warnings, nil
 }

@@ -93,11 +93,15 @@ irm https://raw.githubusercontent.com/pddstudio/vmrc/main/scripts/install.ps1 | 
 curl -fsSL https://raw.githubusercontent.com/pddstudio/vmrc/main/scripts/install.sh | VMRC_BINARY=vmrc-agent sh
 ```
 
-Then enroll the VM by running `setup` with the auth key in the environment:
+Then enroll the VM by running `setup` with the auth key in the environment, and say
+who may drive it (your Tailscale login):
 
 ```sh
-TS_AUTHKEY=tskey-... vmrc-agent setup
+TS_AUTHKEY=tskey-... vmrc-agent setup --allow-login you@example.com
 ```
+
+`setup` refuses to finish without `--allow-login`, `--allow-tag`, or `--token-file`:
+an agent with none of them would deny every request.
 
 That's it. `setup` writes the config, copies the agent into a managed working
 directory, enrolls the VM on your tailnet, and installs + starts the service so it
@@ -170,7 +174,7 @@ vmrc shot buildbox -o shot.png           # screenshot the desktop
 vmrc click buildbox 640 300              # click at absolute screen pixels
 vmrc type  buildbox "hello world"        # type literal text
 vmrc key   buildbox "Enter"              # press a key / combo (Tab, Ctrl+C, Alt+F4…)
-vmrc get buildbox:C:\out\app.zip ./app.zip
+vmrc get buildbox:out/app.zip ./app.zip   # paths are relative to the agent's base_dir
 vmrc put ./tool.exe buildbox:tools/tool.exe   # lands in the agent's uploads dir
 vmrc exec buildbox -- uploads\tools\tool.exe --version
 ```
@@ -212,9 +216,19 @@ By default the agent is reachable by anything your Tailscale ACLs let onto port
 - the optional shared token (`VMRC_TOKEN`, env only) is a fallback used **only** for
   callers whose identity can't be resolved.
 
-With no allowlist, the agent falls back to shared-token auth (`VMRC_TOKEN`); with
-neither, every request is denied. The `--local` dev listener has no tailnet identity,
-so it is always token-only.
+With no allowlist, the agent falls back to shared-token auth; with neither, every
+request is denied. A service gets its token from `token_file` (an owner-only file
+named in the config); `VMRC_TOKEN` works for a foreground `run`. The `--local` dev
+listener has no tailnet identity, so it is always token-only.
+
+Don't put `tag:vmrc` (the tag agents carry) in `allowed_tags`: every agent could then
+drive every other one. The agent warns at startup if you do.
+
+**Browsers can't drive an agent.** Every request must carry the `X-Vmrc-Client`
+header the CLI sends, and requests with browser `Origin`/`Sec-Fetch-*` headers are
+refused. Without this, a web page open on an allowlisted machine could reach the
+agent over the tailnet and, needing no token, run commands. One consequence: an agent
+from v0.3.0 on requires a CLI from v0.3.0 or newer (older CLIs get 403/405).
 
 ## Updating
 
@@ -244,6 +258,7 @@ vmrc update --self --version v0.3.0  # pin a specific release (reinstall/downgra
 vmrc update --all                    # drive every tag:vmrc agent to self-update
 vmrc update buildbox,vm1             # update named agents
 vmrc update --all --check            # report each agent's available version
+vmrc update buildbox --version v0.3.0 --downgrade   # roll an agent back to an older release
 ```
 
 On a VM you can also update the agent locally:
@@ -255,7 +270,9 @@ vmrc-agent update --check            # report only
 
 Remote agent updates (`vmrc update --all`) drive each agent's authenticated `/update`
 endpoint: the agent fetches the release itself, replaces its binary, and exits so its
-service relaunches the new binary. A dev/source build (`version == "dev"`) refuses to
+service relaunches the new binary. Moving an agent to an *older* release needs
+`--downgrade` as well as `--version`. A dev/source build (`dev`, a `git describe` version, or a `go install`
+pseudo-version) refuses to
 update unless you pass `--force` or `--version <tag>`; prereleases are ignored unless
 you pass `--pre`.
 
@@ -276,22 +293,30 @@ also take a kebab-case flag on `run`/`setup` (e.g. `--upload-retention 24h`).
 | `log_max_size_mb` | `VMRC_LOG_MAX_SIZE_MB` | rotate `agent.log` once it would exceed this many MB (default `10`; `0` disables) |
 | `log_max_backups` | `VMRC_LOG_MAX_BACKUPS` | rotated logs kept as `agent.log.1` … `.N` (default `3`) |
 | `bin_dir` | — | dir holding the managed agent binary for self-update; defaults to a `bin/` beside the config/base dir |
-| `read_globs` | — | allowlist of readable path globs under `base_dir` |
+| `read_globs` | — | path globs under `base_dir` the `/read` endpoint may serve (`*` never crosses `/`). `get` is not limited by it: anyone authorized can read anything under `base_dir` |
 | `listen_port` | `VMRC_LISTEN_PORT` | HTTP listen port (default `47800`) |
 | `allowed_logins` | — | identity allowlist: Tailscale login names |
 | `allowed_tags` | — | identity allowlist: ACL tags, e.g. `tag:vmrc-admin` |
+| `token_file` | `VMRC_TOKEN_FILE` | file holding the shared token (must be `chmod 600` on Unix); how the installed service gets a token |
+
+Unknown keys in the config file are an error (so a typo can't silently disable your
+allowlist).
 
 The retention sweep only removes regular files and symlinks under `uploads_dir` (judged
 by their own mtime — symlinks are never followed) and then prunes directories it left
 empty; it never deletes `uploads_dir` itself. Each sweep that removes something logs a
 one-line summary.
 
-**Secrets are env-only and never read from or written to the JSON file:**
+**Secrets are never read from or written to the JSON file** (a secret key in it is an
+error); they come from the environment, or for the token, from `token_file`:
 
 | Secret | Env var |
 |---|---|
 | tailnet auth key (enrollment) | `TS_AUTHKEY` |
-| shared-token fallback | `VMRC_TOKEN` |
+| shared-token fallback | `VMRC_TOKEN` (or `token_file`) |
+
+The embedded Tailscale node doesn't upload its diagnostic logs to Tailscale unless
+you set `VMRC_TAILSCALE_LOGS=1` (useful when working with Tailscale support).
 
 ## Building from source
 
