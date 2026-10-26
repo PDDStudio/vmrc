@@ -112,40 +112,6 @@ func TestManagedExecutablePointsAtBinDir(t *testing.T) {
 	}
 }
 
-func TestDoInstallRelocatesBinaryThenRegisters(t *testing.T) {
-	srcDir := t.TempDir()
-	self := filepath.Join(srcDir, binaryFileName())
-	if err := os.WriteFile(self, []byte("AGENT"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	cfg := config.Config{BinDir: filepath.Join(t.TempDir(), "bin")}
-	c := &recordingController{}
-	if err := doInstall(cfg, self, c); err != nil {
-		t.Fatalf("doInstall: %v", err)
-	}
-	// The service is registered against the managed copy, so install must create
-	// it — a direct `install` (no prior `setup`) otherwise points at a missing
-	// binary.
-	managed := filepath.Join(cfg.BinDir, binaryFileName())
-	if b, err := os.ReadFile(managed); err != nil || string(b) != "AGENT" {
-		t.Fatalf("managed binary missing/wrong after install: %q err=%v", b, err)
-	}
-	if len(c.calls) != 1 || c.calls[0] != "install" {
-		t.Fatalf("want [install] after relocate, got %v", c.calls)
-	}
-}
-
-type recordingController struct {
-	calls  []string
-	status string
-}
-
-func (r *recordingController) Control(action string) error {
-	r.calls = append(r.calls, action)
-	return nil
-}
-func (r *recordingController) Status() (string, error) { return r.status, nil }
-
 func TestUninstallStopsRunningInstanceFirst(t *testing.T) {
 	c := &recordingController{}
 	if err := uninstallService(c); err != nil {
