@@ -114,6 +114,74 @@ func TestProgramStopDoesNotTriggerOnExit(t *testing.T) {
 	}
 }
 
+// A run func that dies on its own and a Stop that arrives at the same moment
+// must resolve to exactly one outcome: either Stop wins (no onExit) or the
+// unexpected exit wins (onExit fires and Stop returns at once instead of
+// waiting stopTimeout for a done signal that will never come).
+func TestProgramStopRacingUnexpectedExit(t *testing.T) {
+	old := stopTimeout
+	stopTimeout = 5 * time.Second
+	defer func() { stopTimeout = old }()
+
+	for i := 0; i < 200; i++ {
+		exited := make(chan error, 1)
+		p := &program{
+			run:    func(ctx context.Context) error { return errors.New("died") },
+			onExit: func(err error) { exited <- err },
+		}
+		if err := p.Start(nil); err != nil {
+			t.Fatalf("Start: %v", err)
+		}
+		start := time.Now()
+		err := p.Stop(nil)
+		if d := time.Since(start); d > time.Second {
+			t.Fatalf("iteration %d: Stop blocked %s racing an unexpected exit", i, d)
+		}
+		select {
+		case <-exited:
+			// The unexpected exit won the race; Stop must report the run error.
+			if err == nil {
+				t.Fatalf("iteration %d: onExit fired but Stop returned nil", i)
+			}
+		default:
+			// Stop won; onExit must never fire afterwards.
+			select {
+			case <-exited:
+				t.Fatalf("iteration %d: onExit fired after Stop had claimed the shutdown", i)
+			case <-time.After(5 * time.Millisecond):
+			}
+		}
+	}
+}
+
+// Deterministic half of the race: the run func has already died (onExit is
+// running) when the supervisor's Stop arrives. Stop must return the run error
+// immediately rather than wait stopTimeout for a done signal nobody will send.
+func TestProgramStopAfterUnexpectedExitReturnsPromptly(t *testing.T) {
+	old := stopTimeout
+	stopTimeout = 5 * time.Second
+	defer func() { stopTimeout = old }()
+
+	wantErr := errors.New("died")
+	inExit := make(chan struct{})
+	p := &program{
+		run:    func(ctx context.Context) error { return wantErr },
+		onExit: func(err error) { close(inExit) },
+	}
+	if err := p.Start(nil); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	<-inExit
+	start := time.Now()
+	err := p.Stop(nil)
+	if d := time.Since(start); d > time.Second {
+		t.Fatalf("Stop blocked %s after the run func had already exited", d)
+	}
+	if !errors.Is(err, wantErr) {
+		t.Fatalf("Stop = %v, want the run error %v", err, wantErr)
+	}
+}
+
 func TestDefaultOnExitExitsNonZero(t *testing.T) {
 	old := osExit
 	got := make(chan int, 1)
