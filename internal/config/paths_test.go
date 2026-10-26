@@ -21,8 +21,9 @@ func TestDefaultPaths(t *testing.T) {
 		t.Run(tt.goos, func(t *testing.T) {
 			p := defaultPaths(tt.goos)
 			if tt.goos != "windows" {
-				// defaultPaths joins with the host separator.
-				tt.wantConfig, tt.wantState, tt.wantBase = filepath.FromSlash(tt.wantConfig), filepath.FromSlash(tt.wantState), filepath.FromSlash(tt.wantBase)
+				// Some layouts are built with filepath.Join (host separator), so
+				// compare in slash form.
+				p.ConfigPath, p.StateDir, p.BaseDir = filepath.ToSlash(p.ConfigPath), filepath.ToSlash(p.StateDir), filepath.ToSlash(p.BaseDir)
 			}
 			if p.ConfigPath != tt.wantConfig {
 				t.Errorf("ConfigPath = %q, want %q", p.ConfigPath, tt.wantConfig)

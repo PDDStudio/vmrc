@@ -151,7 +151,7 @@ func TestValidateRetentionAndLogKeys(t *testing.T) {
 		{name: "negative log backups", mut: func(c *Config) { c.LogMaxBackups = -1 }, wantErr: "log_max_backups"},
 		{name: "log rotation disabled", mut: func(c *Config) { c.LogMaxSizeMB = 0 }},
 		{name: "relative uploads dir", mut: func(c *Config) { c.UploadsDir = "rel/up" }, wantErr: "uploads_dir must be an absolute path"},
-		{name: "absolute uploads dir outside base", mut: func(c *Config) { c.UploadsDir = filepath.Join(string(filepath.Separator)+"elsewhere", "up") }},
+		{name: "absolute uploads dir outside base", mut: func(c *Config) { c.UploadsDir = testAbs("/elsewhere/up") }},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
