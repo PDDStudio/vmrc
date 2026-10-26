@@ -45,6 +45,41 @@ expected behavior:
 - **File access is bounded** to `base_dir` (uploads to `uploads_dir`) and, for reads, to a configured glob
   allowlist; path-traversal escapes are treated as bugs.
 
+- **Self-updates are signature-verified.** See [Release signing](#release-signing).
+
+## Release signing
+
+Releases are signed so that a compromised GitHub release, token, or account can't push
+a malicious build through `update`:
+
+- The release workflow signs `checksums.txt` with an **ed25519** key and publishes the
+  detached signature as `checksums.txt.sig`. The private key exists only as the
+  `VMRC_RELEASE_SIGNING_KEY` CI secret. It is never committed and never written to disk
+  by the tooling.
+- Both binaries embed the trusted **public** keys from
+  [`internal/selfupdate/keys/`](./internal/selfupdate/keys/). `vmrc update --self`,
+  `vmrc-agent update` and the agent's remote `/update` endpoint all verify the signature
+  over the exact `checksums.txt` bytes *before* trusting any checksum in it. Only then is
+  the archive's SHA-256 checked and the binary replaced.
+- Verification **fails closed**. Each of these cases refuses the update and leaves the
+  installed binary untouched: a missing `.sig` asset (so stripping the signature doesn't
+  work), a malformed signature, a signature by an untrusted key, or a build with no
+  embedded key. There is no override flag.
+- `checksums.txt.sig` has two lines: `vmrc-signature-v1 ed25519 <key-id>`, then the
+  base64 of the raw 64-byte signature. `<key-id>` is the first 8 bytes of SHA-256 of the
+  public key, in hex. Every embedded key is trusted, so the maintainer can rotate keys
+  without breaking existing installs (see CONTRIBUTING.md, "Release signing key").
+- To check a downloaded release by hand from a clone:
+  `go run ./tools/releasesign verify -in checksums.txt -sig checksums.txt.sig`.
+- Known gap: the one-line install scripts (`scripts/install.sh`, `install.ps1`) still
+  only check SHA-256, so the *first* install trusts the release. Every update after
+  that is signature-verified.
+
+A report that shows a way to make a binary accept an update not signed by an embedded
+key is in scope.
+
+## Reporting scope
+
 A report that demonstrates a way to bypass any of the above — unauthenticated
 access, escaping `base_dir`, leaking a secret, or reaching the agent off-tailnet
 — is in scope and worth reporting.
