@@ -43,8 +43,8 @@ before login), pass `--system`:
 ```sh
 vmrc ls                                 # the VM appears as a tag:vmrc node
 vmrc exec <vm> -- systeminfo            # runs, returns output + exit code
-vmrc put ./hello.txt <vm>:hello.txt     # upload into the agent base dir
-vmrc get <vm>:hello.txt ./hello.out     # round-trip download
+vmrc put ./hello.txt <vm>:hello.txt     # upload into the agent uploads dir (<base_dir>/uploads)
+vmrc get <vm>:uploads/hello.txt ./hello.out   # round-trip download (get is base-dir relative)
 ```
 
 ## 4. Verify user-session screenshots + elevated exec
@@ -83,7 +83,8 @@ rejoined the tailnet from its saved `state/`. For unattended/headless VMs, enabl
   to the config likewise, except Linux `--system`: `/var/log/vmrc/agent.log`). Each start writes a banner
   (version/pid/args); the line(s) after it — a config error, a tunnel-bringup
   failure, or a `PANIC:` stack — are the reason it exited. Override the path with
-  `--log-file` / `VMRC_LOG_FILE`.
+  `--log-file` / `VMRC_LOG_FILE`. The log rotates at `log_max_size_mb` (default
+  10 MB) into `agent.log.1` … `agent.log.3`, so an older start may be in a backup.
 - **Not in `vmrc ls`:** check `vmrc-agent.exe status` on the VM; confirm the auth
   key was tagged `tag:vmrc` and not expired; check Tailscale ACLs allow your host
   to reach port `47800`.

@@ -226,12 +226,11 @@ func DefaultsForLayout(mode Mode, layout UserLayout) (Config, error) {
 		if err != nil {
 			return Config{}, err
 		}
-		return Config{
-			StateDir:   p.StateDir,
-			BaseDir:    p.BaseDir,
-			BinDir:     p.BinDir,
-			ListenPort: 47800,
-		}, nil
+		return withOperationalDefaults(Config{
+			StateDir: p.StateDir,
+			BaseDir:  p.BaseDir,
+			BinDir:   p.BinDir,
+		}), nil
 	}
 	// system mode: reuse the legacy layout, plus a bin/ under the same root.
 	c := Defaults()

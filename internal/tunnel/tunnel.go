@@ -15,6 +15,7 @@ import (
 	"strings"
 
 	"tailscale.com/client/local"
+	"tailscale.com/envknob"
 	"tailscale.com/tsnet"
 )
 
@@ -93,6 +94,13 @@ func (t *Tunnel) Close() error { return t.srv.Close() }
 func Up(ctx context.Context, cfg Config) (*Tunnel, error) {
 	if err := validateConfig(cfg, hasState(cfg.StateDir)); err != nil {
 		return nil, err
+	}
+	// tsnet uploads diagnostic logs to log.tailscale.com by default. An agent
+	// that "joins the tailnet by itself" shouldn't also phone home unasked, so
+	// that's opt-in (VMRC_TAILSCALE_LOGS=1, e.g. when working with Tailscale
+	// support).
+	if os.Getenv("VMRC_TAILSCALE_LOGS") != "1" {
+		envknob.SetNoLogsNoSupport()
 	}
 	srv := &tsnet.Server{
 		Hostname: cfg.Hostname,

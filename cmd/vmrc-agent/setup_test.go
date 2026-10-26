@@ -4,6 +4,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/pddstudio/vmrc/internal/config"
 )
 
 func TestSetupRelocatesBinaryIntoBinDir(t *testing.T) {
@@ -53,5 +55,24 @@ func TestShouldWriteConfig(t *testing.T) {
 	}
 	if shouldWriteConfig(missing) {
 		t.Error("existing config must not be overwritten")
+	}
+}
+
+func TestCheckSetupAuth(t *testing.T) {
+	cases := []struct {
+		name string
+		cfg  config.Config
+		ok   bool
+	}{
+		{"nothing configured", config.Config{}, false},
+		{"env token only (not persisted)", config.Config{Token: "t"}, false},
+		{"login allowlist", config.Config{AllowedLogins: []string{"op@example.com"}}, true},
+		{"tag allowlist", config.Config{AllowedTags: []string{"tag:ops"}}, true},
+		{"token file", config.Config{TokenFile: "/etc/vmrc/token"}, true},
+	}
+	for _, tc := range cases {
+		if err := checkSetupAuth(tc.cfg); (err == nil) != tc.ok {
+			t.Errorf("%s: err=%v, want ok=%v", tc.name, err, tc.ok)
+		}
 	}
 }

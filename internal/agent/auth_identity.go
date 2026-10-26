@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"slices"
 
+	"tailscale.com/client/local"
 	"tailscale.com/client/tailscale/apitype"
 )
 
@@ -38,8 +39,14 @@ type IdentityAuthorizer struct {
 
 func (a IdentityAuthorizer) Authorize(r *http.Request) error {
 	who, err := a.WhoIs.WhoIs(r.Context(), r.RemoteAddr)
-	if err != nil {
+	if errors.Is(err, local.ErrPeerNotFound) {
 		return fmt.Errorf("%w: whois %s: %v", ErrUnidentified, r.RemoteAddr, err)
+	}
+	if err != nil {
+		// Any other failure (LocalAPI hiccup, netmap not yet received) is a deny,
+		// not "unidentified": falling through would let the token admit a peer
+		// that identity, a moment later, would reject.
+		return fmt.Errorf("whois %s: %v", r.RemoteAddr, err)
 	}
 	if who == nil || who.Node == nil {
 		return fmt.Errorf("%w: whois %s: empty response", ErrUnidentified, r.RemoteAddr)

@@ -26,7 +26,7 @@ func TestSetupLoggingWritesBannerAndCreatesDir(t *testing.T) {
 	restoreLogger(t)
 	path := filepath.Join(t.TempDir(), "logs", "agent.log") // parent dir missing on purpose
 
-	if err := setupLogging(path, "BANNER-XYZ"); err != nil {
+	if _, err := setupLogging(path, "BANNER-XYZ"); err != nil {
 		t.Fatalf("setupLogging err = %v", err)
 	}
 	log.Print("after-setup-line")
@@ -48,10 +48,10 @@ func TestSetupLoggingAppends(t *testing.T) {
 	restoreLogger(t)
 	path := filepath.Join(t.TempDir(), "agent.log")
 
-	if err := setupLogging(path, "FIRST"); err != nil {
+	if _, err := setupLogging(path, "FIRST"); err != nil {
 		t.Fatalf("first setupLogging err = %v", err)
 	}
-	if err := setupLogging(path, "SECOND"); err != nil {
+	if _, err := setupLogging(path, "SECOND"); err != nil {
 		t.Fatalf("second setupLogging err = %v", err)
 	}
 	b, _ := os.ReadFile(path)
@@ -68,7 +68,7 @@ func TestSetupLoggingIsOwnerOnly(t *testing.T) {
 	restoreLogger(t)
 	dir := filepath.Join(t.TempDir(), "logs")
 	path := filepath.Join(dir, "agent.log")
-	if err := setupLogging(path, "x"); err != nil {
+	if _, err := setupLogging(path, "x"); err != nil {
 		t.Fatalf("setupLogging: %v", err)
 	}
 	if st, err := os.Stat(dir); err != nil || st.Mode().Perm() != 0o700 {
@@ -92,7 +92,7 @@ func TestSetupLoggingTightensExistingFile(t *testing.T) {
 	if err := os.Chmod(path, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := setupLogging(path, "x"); err != nil {
+	if _, err := setupLogging(path, "x"); err != nil {
 		t.Fatalf("setupLogging: %v", err)
 	}
 	if st, _ := os.Stat(path); st.Mode().Perm() != 0o600 {
@@ -103,7 +103,7 @@ func TestSetupLoggingTightensExistingFile(t *testing.T) {
 func TestSetupLoggingTeesToStderrWriter(t *testing.T) {
 	restoreLogger(t)
 	path := filepath.Join(t.TempDir(), "agent.log")
-	if err := setupLogging(path, "x"); err != nil {
+	if _, err := setupLogging(path, "x"); err != nil {
 		t.Fatalf("setupLogging err = %v", err)
 	}
 	// After setup, the global writer must be a MultiWriter (not the bare file),

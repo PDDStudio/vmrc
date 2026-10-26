@@ -90,6 +90,12 @@ func updateAction(ctx context.Context, cmd *cli.Command) error {
 		}
 		return nil
 	}
+	// Refuse before stopping the service when this build cannot verify release
+	// signatures at all (no embedded key); Apply would fail closed anyway, but
+	// only after the agent had been taken down.
+	if err := t.SigningReady(); err != nil {
+		return err
+	}
 
 	mode := resolveMode(cmd)
 	// An elevated Windows logon task launches its binary from an admin-only

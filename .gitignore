@@ -42,3 +42,6 @@ coverage.*
 *.swp
 .idea/
 .vscode/
+
+# Agent git worktrees (Claude Code)
+.claude/worktrees/

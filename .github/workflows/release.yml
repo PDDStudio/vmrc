@@ -20,6 +20,31 @@ jobs:
         with:
           fetch-depth: 0
 
+      # Fail before tagging if the signing secret is absent: binaries refuse to
+      # self-update to a release without a valid checksums.txt.sig.
+      - name: Require release signing key
+        env:
+          VMRC_RELEASE_SIGNING_KEY: ${{ secrets.VMRC_RELEASE_SIGNING_KEY }}
+        run: |
+          if [ -z "$VMRC_RELEASE_SIGNING_KEY" ]; then
+            echo "::error::secret VMRC_RELEASE_SIGNING_KEY is not set; releases must be signed. See CONTRIBUTING.md -> Release signing key."
+            exit 1
+          fi
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      # Also before tagging: a trial signature proves the secret parses and is one
+      # of the public keys embedded in this commit (internal/selfupdate/keys/*.pub).
+      - name: Check signing key matches an embedded key
+        env:
+          VMRC_RELEASE_SIGNING_KEY: ${{ secrets.VMRC_RELEASE_SIGNING_KEY }}
+        run: |
+          go run ./tools/releasesign sign -in go.mod -out "$RUNNER_TEMP/trial.sig"
+          go run ./tools/releasesign verify -in go.mod -sig "$RUNNER_TEMP/trial.sig"
+
       - name: Validate version input
         env:
           VERSION: ${{ inputs.version }}
@@ -47,11 +72,6 @@ jobs:
           git tag -a "v$RELEASE_VERSION" -m "Release v$RELEASE_VERSION"
           git push origin "v$RELEASE_VERSION"
 
-      - uses: actions/setup-go@v7
-        with:
-          go-version-file: go.mod
-          cache: true
-
       - name: Release
         uses: goreleaser/goreleaser-action@v7
         with:
@@ -60,3 +80,4 @@ jobs:
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VMRC_RELEASE_SIGNING_KEY: ${{ secrets.VMRC_RELEASE_SIGNING_KEY }}

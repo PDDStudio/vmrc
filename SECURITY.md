@@ -39,11 +39,16 @@ expected behavior:
   allowlists), with an optional shared bearer token as a fallback. Anyone your
   ACLs let reach the agent, and who matches the allowlist, can run commands on
   that machine — that is by design.
+- **Only the vmrc client can drive an agent, not a browser.** Every request must
+  carry the `X-Vmrc-Client` header, and requests with browser `Origin` /
+  `Sec-Fetch-*` headers are refused, so a web page on an allowlisted machine
+  can't forge requests (CSRF) or reach the agent via DNS rebinding.
 - **Secrets are supplied at runtime** via environment variables (Tailscale auth
-  key, shared token) and are never written to the config file or baked into the
-  binary.
-- **File access is bounded** to `base_dir` and, for reads, to a configured glob
-  allowlist; path-traversal escapes are treated as bugs.
+  key, shared token) or an owner-only `token_file`, and are never written to the
+  config file or baked into the binary.
+- **File access is bounded** to `base_dir` (uploads to `uploads_dir`);
+  path-traversal and symlink escapes are treated as bugs. `read_globs` narrows
+  only the `/read` endpoint; `get` can read anything under `base_dir`.
 - **Command lines are logged.** The agent's request log records the full
   command line of every `exec`/`spawn` (operator visibility is a feature), so
   anything typed on a remote command line — including credentials — ends up
@@ -58,7 +63,41 @@ expected behavior:
   agent re-applies these on every start. A non-admin local account being able
   to read the node key, or to change what an elevated/SYSTEM agent executes,
   is in scope.
+- **Self-updates are signature-verified.** See [Release signing](#release-signing).
+
+## Release signing
+
+Releases are signed so that a compromised GitHub release, token, or account can't push
+a malicious build through `update`:
+
+- The release workflow signs `checksums.txt` with an **ed25519** key and publishes the
+  detached signature as `checksums.txt.sig`. The private key exists only as the
+  `VMRC_RELEASE_SIGNING_KEY` CI secret. It is never committed and never written to disk
+  by the tooling.
+- Both binaries embed the trusted **public** keys from
+  [`internal/selfupdate/keys/`](./internal/selfupdate/keys/). `vmrc update --self`,
+  `vmrc-agent update` and the agent's remote `/update` endpoint all verify the signature
+  over the exact `checksums.txt` bytes *before* trusting any checksum in it. Only then is
+  the archive's SHA-256 checked and the binary replaced.
+- Verification **fails closed**. Each of these cases refuses the update and leaves the
+  installed binary untouched: a missing `.sig` asset (so stripping the signature doesn't
+  work), a malformed signature, a signature by an untrusted key, or a build with no
+  embedded key. There is no override flag.
+- `checksums.txt.sig` has two lines: `vmrc-signature-v1 ed25519 <key-id>`, then the
+  base64 of the raw 64-byte signature. `<key-id>` is the first 8 bytes of SHA-256 of the
+  public key, in hex. Every embedded key is trusted, so the maintainer can rotate keys
+  without breaking existing installs (see CONTRIBUTING.md, "Release signing key").
+- To check a downloaded release by hand from a clone:
+  `go run ./tools/releasesign verify -in checksums.txt -sig checksums.txt.sig`.
+- Known gap: the one-line install scripts (`scripts/install.sh`, `install.ps1`) still
+  only check SHA-256, so the *first* install trusts the release. Every update after
+  that is signature-verified.
+
+A report that shows a way to make a binary accept an update not signed by an embedded
+key is in scope.
+
+## Reporting scope
 
 A report that demonstrates a way to bypass any of the above — unauthenticated
-access, escaping `base_dir`, leaking a secret, or reaching the agent off-tailnet
+or browser-forged access, escaping `base_dir`, leaking a secret, or reaching the agent off-tailnet
 — is in scope and worth reporting.

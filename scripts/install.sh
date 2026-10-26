@@ -140,11 +140,11 @@ if [ "$BINARY" = vmrc-agent ]; then
 	echo "Next: enroll this VM on your tailnet and install the agent service."
 	echo "Per-user service (default; can capture the desktop) — run as the user the"
 	echo "agent should run as, WITHOUT sudo:"
-	echo "  TS_AUTHKEY=tskey-... vmrc-agent setup"
+	echo "  TS_AUTHKEY=tskey-... vmrc-agent setup --allow-login you@example.com"
 	if [ "$(uname -s)" = Linux ]; then
 		echo "  (a systemd user service starts at login; to start it at boot run once:"
 		echo "   loginctl enable-linger \"\$USER\")"
 	fi
 	echo "Or a machine-wide boot service running as root:"
-	echo "  sudo TS_AUTHKEY=tskey-... vmrc-agent setup --system"
+	echo "  sudo TS_AUTHKEY=tskey-... vmrc-agent setup --system --allow-login you@example.com"
 fi
