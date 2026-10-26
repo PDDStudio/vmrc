@@ -63,6 +63,23 @@ checksum:
   name_template: checksums.txt
   algorithm: sha256
 
+# Sign checksums.txt -> checksums.txt.sig (ed25519, format documented in
+# internal/selfupdate/signature.go). Binaries refuse to self-update to a release
+# without a valid signature by an embedded key (internal/selfupdate/keys/*.pub).
+# The private key comes only from the VMRC_RELEASE_SIGNING_KEY secret
+# (release.yml); `sign` also fails if that key is not one of the embedded keys.
+# The variable reaches the command because goreleaser runs sign commands with its
+# own process environment; no `env:` entry is needed (and a `{{ .Env.X }}`
+# entry there would not resolve, since sign env templates only see earlier
+# entries of the same list). The tool fails clearly when the variable is unset.
+# `goreleaser build --snapshot` (CI) never runs this pipe, so CI needs no secret.
+signs:
+  - id: checksums
+    artifacts: checksum
+    cmd: go
+    args: ["run", "./tools/releasesign", "sign", "-in", "${artifact}", "-out", "${signature}"]
+    signature: "${artifact}.sig"
+
 changelog:
   # use: git keeps the entry format "{{ .SHA }} {{ .Message }}" — short hash + subject,
   # no author name/email (the github backend appends "(author <email>)"). abbrev shortens

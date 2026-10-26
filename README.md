@@ -232,10 +232,23 @@ from v0.3.0 on requires a CLI from v0.3.0 or newer (older CLIs get 403/405).
 
 ## Updating
 
-Both binaries update themselves from this repo's GitHub Releases — download,
-SHA-256-verify against the release `checksums.txt`, then atomically replace their
-own executable. No GitHub token is needed; set `GITHUB_TOKEN` only if you hit the
-unauthenticated API rate limit.
+Both binaries update themselves from this repo's GitHub Releases. Each update goes
+through these steps:
+
+1. Download the release's `checksums.txt` and its signature, `checksums.txt.sig`.
+2. Verify the ed25519 signature against the release public key compiled into the
+   binary.
+3. SHA-256-verify the downloaded archive against the now-authenticated
+   `checksums.txt`.
+4. Atomically replace the binary's own executable.
+
+An update is refused, and the installed binary left untouched, when the release is
+unsigned, the signature is invalid, or the signing key is unknown. A build without an
+embedded release key can't self-update at all. There is no flag to skip this check.
+See [SECURITY.md](./SECURITY.md#release-signing).
+
+No GitHub token is needed. Set `GITHUB_TOKEN` only if you hit the unauthenticated
+API rate limit.
 
 ```sh
 vmrc update --self                   # update this local vmrc CLI

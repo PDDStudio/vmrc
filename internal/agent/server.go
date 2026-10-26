@@ -9,6 +9,7 @@ package agent
 import (
 	"bytes"
 	"context"
+	"crypto/ed25519"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -99,6 +100,11 @@ type UpdateConfig struct {
 	Version     string // current build version
 	GitHubToken string // optional; raises the GitHub API rate limit
 	APIBase     string // optional GitHub API root override (tests/proxies)
+
+	// trustedKeys overrides the release signing keys embedded in the binary.
+	// Tests only (unexported, never configurable): production always verifies
+	// against the embedded keys.
+	trustedKeys []ed25519.PublicKey
 }
 
 // restartDelayDefault is the flush window between writing the /update response
@@ -677,11 +683,12 @@ func (s *Server) handleUpdate(w http.ResponseWriter, r *http.Request) {
 		defer s.updating.Store(false)
 	}
 	t := selfupdate.Target{
-		Repo:       s.Update.Repo,
-		BinaryName: s.Update.BinaryName,
-		Version:    s.Update.Version,
-		Token:      s.Update.GitHubToken,
-		APIBase:    s.Update.APIBase,
+		Repo:        s.Update.Repo,
+		BinaryName:  s.Update.BinaryName,
+		Version:     s.Update.Version,
+		Token:       s.Update.GitHubToken,
+		APIBase:     s.Update.APIBase,
+		TrustedKeys: s.Update.trustedKeys,
 	}
 	opt := selfupdate.Options{PinnedTag: q.Get("version"), AllowPrerelease: q.Get("pre") != ""}
 
