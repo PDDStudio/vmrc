@@ -98,11 +98,13 @@ remains, and a fresh clone builds and runs per the README.
 
 ---
 
-## P6 — MCP server (later)
+## P6 — MCP server ✅ done
 
-- `vmrc mcp` — expose verbs as MCP tools (`vmrc_exec`, `vmrc_screenshot`, `vmrc_get`,
-  `vmrc_put`, `vmrc_ls`), reusing the P4 host client.
-- Model the tool UX on the control agent's existing AI-agent skill.
+- `vmrc mcp` — stdio MCP server (official Go SDK) exposing `vmrc_ls`, `vmrc_exec`,
+  `vmrc_screenshot`, `vmrc_click`, `vmrc_type`, `vmrc_key`, `vmrc_get`, `vmrc_put`, reusing the
+  P4 host client (`internal/mcpserver`).
+- Tool UX modelled on the `vmrc-cli` skill: `vmrc_ls` → screenshot → act → screenshot.
+- Self-update is intentionally **not** exposed as a tool.
 
 **Done when:** an AI agent can drive a VM through the MCP tools without curl/CLI.
 
@@ -147,6 +149,6 @@ remains, and a fresh clone builds and runs per the README.
 | `tailscale.com/tsnet` | embedded tailnet node | P1 |
 | `github.com/kardianos/service` | boot service across OSes | P2 |
 | `github.com/kbinani/screenshot` | desktop capture (win/mac/linux-X11) | P0/P5 |
-| an MCP Go SDK (TBD) | MCP server mode | P6 |
+| `github.com/modelcontextprotocol/go-sdk` | MCP server mode (`vmrc mcp`) | P6 |
 
 Ask the maintainer before adding deps beyond these.

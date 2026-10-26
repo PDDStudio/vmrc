@@ -1,4 +1,4 @@
-package main
+package atomicfile
 
 import (
 	"errors"
@@ -12,9 +12,9 @@ import (
 // failAfterReader yields data up to failAfter bytes, then returns an error, to
 // simulate a transfer that dies partway through.
 type failAfterReader struct {
-	data     []byte
+	data      []byte
 	failAfter int
-	read     int
+	read      int
 }
 
 func (r *failAfterReader) Read(p []byte) (int, error) {
@@ -26,9 +26,9 @@ func (r *failAfterReader) Read(p []byte) (int, error) {
 	return n, nil
 }
 
-func TestDownloadToWritesFileOnSuccess(t *testing.T) {
+func TestWriteWritesFileOnSuccess(t *testing.T) {
 	local := filepath.Join(t.TempDir(), "out.bin")
-	n, err := downloadTo(local, strings.NewReader("PACKED"))
+	n, err := Write(local, strings.NewReader("PACKED"))
 	if err != nil || n != 6 {
 		t.Fatalf("n=%d err=%v", n, err)
 	}
@@ -38,7 +38,7 @@ func TestDownloadToWritesFileOnSuccess(t *testing.T) {
 	}
 }
 
-func TestDownloadToOverwritesExistingFile(t *testing.T) {
+func TestWriteOverwritesExistingFile(t *testing.T) {
 	// Runs on all platforms (no skip): os.Rename replaces an existing file on
 	// Windows too (MoveFileEx with MOVEFILE_REPLACE_EXISTING), so a get onto an
 	// existing local path must succeed and replace the content.
@@ -47,7 +47,7 @@ func TestDownloadToOverwritesExistingFile(t *testing.T) {
 	if err := os.WriteFile(local, []byte("OLD-CONTENT-LONGER"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	n, err := downloadTo(local, strings.NewReader("NEW"))
+	n, err := Write(local, strings.NewReader("NEW"))
 	if err != nil {
 		t.Fatalf("overwrite must succeed, got %v", err)
 	}
@@ -57,7 +57,7 @@ func TestDownloadToOverwritesExistingFile(t *testing.T) {
 	}
 }
 
-func TestDownloadToNewFileMatchesOsCreatePerms(t *testing.T) {
+func TestWriteNewFileMatchesOsCreatePerms(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("POSIX file modes are not meaningful on Windows")
 	}
@@ -73,7 +73,7 @@ func TestDownloadToNewFileMatchesOsCreatePerms(t *testing.T) {
 	refFI, _ := os.Stat(ref)
 
 	local := filepath.Join(dir, "dl")
-	if _, err := downloadTo(local, strings.NewReader("x")); err != nil {
+	if _, err := Write(local, strings.NewReader("x")); err != nil {
 		t.Fatal(err)
 	}
 	dlFI, _ := os.Stat(local)
@@ -82,7 +82,7 @@ func TestDownloadToNewFileMatchesOsCreatePerms(t *testing.T) {
 	}
 }
 
-func TestDownloadToPreservesExistingFileMode(t *testing.T) {
+func TestWritePreservesExistingFileMode(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("POSIX file modes are not meaningful on Windows")
 	}
@@ -94,7 +94,7 @@ func TestDownloadToPreservesExistingFileMode(t *testing.T) {
 	if err := os.Chmod(local, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := downloadTo(local, strings.NewReader("new")); err != nil {
+	if _, err := Write(local, strings.NewReader("new")); err != nil {
 		t.Fatal(err)
 	}
 	// Replacing an existing file must keep its mode (e.g. an executable stays +x),
@@ -105,14 +105,14 @@ func TestDownloadToPreservesExistingFileMode(t *testing.T) {
 	}
 }
 
-func TestDownloadToPreservesExistingFileOnFailure(t *testing.T) {
+func TestWritePreservesExistingFileOnFailure(t *testing.T) {
 	dir := t.TempDir()
 	local := filepath.Join(dir, "important.bin")
 	if err := os.WriteFile(local, []byte("ORIGINAL"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	r := &failAfterReader{data: []byte("PARTIALPARTIAL"), failAfter: 5}
-	if _, err := downloadTo(local, r); err == nil {
+	if _, err := Write(local, r); err == nil {
 		t.Fatal("expected error from a failed transfer")
 	}
 	// A failed download must NOT clobber the pre-existing local file.

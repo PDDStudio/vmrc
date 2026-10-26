@@ -19,7 +19,8 @@ not law — deviate where reality demands, but record why.
 - `vmrc shot <vm> [-o file.png]` — grab a screenshot.
 - `vmrc get <vm>:<path> <local>` / `vmrc put <local> <vm>:<path>` — file transfer.
 - `vmrc cp` — convenience wrapper over get/put.
-- (later) `vmrc mcp` — run an MCP server exposing these verbs as tools.
+- `vmrc mcp` — run an MCP server (stdio) exposing these verbs as tools (see
+  [MCP server mode](#mcp-server-mode)).
 
 Splitting the roles keeps each binary's responsibility (and build target) clear: build
 `vmrc-agent` per VM OS/arch and copy it to a VM; build `vmrc` for your host. Shared code
@@ -193,10 +194,29 @@ Auth keys are **runtime** (env/config), not baked at build time — keeps binari
 distributable and secret-free. (Build-time bake is possible via `-X` like the patcher's
 `defaultServer`, but rejected here because it embeds a secret.)
 
-## Phase 2: MCP server mode
+## MCP server mode
 
-`vmrc mcp` runs an MCP server (stdio or HTTP) exposing the same verbs as MCP tools
-(`vmrc_exec`, `vmrc_screenshot`, `vmrc_get`, `vmrc_put`, `vmrc_ls`), so an AI agent drives the
-fleet natively instead of shelling out to curl/CLI. The tool surface mirrors the CLI 1:1 and
-reuses the same host-side HTTP client. The control agent's existing AI-agent skill is the
-reference for the intended agent UX.
+`vmrc mcp` runs an MCP server over **stdio** (the transport Claude Code / Claude Desktop
+launch) built on the official Go SDK (`github.com/modelcontextprotocol/go-sdk`). It exposes
+the host verbs as tools — `vmrc_ls`, `vmrc_exec`, `vmrc_screenshot`, `vmrc_click`,
+`vmrc_type`, `vmrc_key`, `vmrc_get`, `vmrc_put` — so an AI agent drives the fleet natively
+instead of shelling out to the CLI.
+
+- **Layout:** tool logic lives in `internal/mcpserver`; `cmd/vmrc/mcp.go` only wires it to
+  the stdio transport. Tools reuse `host.Discoverer` (target resolution) and `host.Client`
+  (the HTTP verbs) through an injectable `Config`, the same `clientFor` the CLI uses, so the
+  global flags (`--token`, `--port`, `--scheme`, `--tag`, `--timeout`) apply unchanged. Tests
+  drive the server end-to-end over the SDK's in-memory transport against an `httptest` fake
+  agent.
+- **Typed inputs:** each tool has a Go input struct whose `jsonschema` tags become the
+  advertised JSON Schema; the SDK validates arguments before the handler runs.
+- **Results:** `vmrc_exec` returns combined output plus exit code (non-zero exit is a normal
+  result; output beyond 1 MiB is truncated); `vmrc_screenshot` returns PNG image content;
+  `vmrc_get` returns UTF-8 text ≤ 1 MiB inline, or writes atomically to `local_path`
+  (`internal/atomicfile`, shared with `vmrc get`).
+- **Errors:** discovery and agent failures (unknown VM, 403, unreachable, timeout) become
+  `isError` tool results with the agent's message, never protocol errors or a crash.
+- **Not exposed:** self-update (`/update`). Replacing agent binaries is an operator
+  decision, not something an autonomous model should trigger.
+- **stdout discipline:** stdout is the JSON-RPC channel; the server logs every tool call to
+  stderr (typed text is logged by length only).

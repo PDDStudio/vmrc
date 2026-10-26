@@ -20,7 +20,9 @@ It ships as **two binaries** built from one Go module:
 
 Because the interface is just a CLI, it's equally drivable by a **human or an AI agent**.
 A bundled Claude Code skill teaches an agent the *screenshot → reason → act* loop
-([install it below](#3-install-the-ai-agent-skill)).
+([install it below](#3-install-the-ai-agent-skill)), and `vmrc mcp` exposes the same verbs
+as native **MCP tools** for Claude Code, Claude Desktop, or any MCP client
+([see below](#use-with-claude-code--mcp-clients)).
 
 ## How it works
 
@@ -160,6 +162,56 @@ Once installed, ask the agent to control a VM in plain language ("take a screens
 `buildbox`", "click the OK button", "run `systeminfo` on `vm1`") and it will drive the
 CLI for you. The agent operates the `vmrc` CLI only — it never calls the HTTP API
 directly, so the same tailnet + identity auth applies.
+
+## Use with Claude Code / MCP clients
+
+`vmrc mcp` runs an [MCP](https://modelcontextprotocol.io) server over stdio, so an AI agent
+can drive the fleet through native tools instead of shelling out to the CLI. It uses the
+same discovery, auth, and flags as the CLI (`--token`/`VMRC_TOKEN`, `--port`, `--scheme`,
+`--tag`, `--timeout`); put global flags **before** `mcp`.
+
+Register it with Claude Code:
+
+```sh
+claude mcp add vmrc -- vmrc mcp
+# agents on a tailnet without HTTPS certs, user-wide, with a token-fallback agent:
+claude mcp add --scope user -e VMRC_TOKEN=… vmrc -- vmrc --scheme http mcp
+```
+
+Or add it to an MCP client's JSON config (Claude Desktop's `claude_desktop_config.json`,
+a project `.mcp.json`, …):
+
+```json
+{
+  "mcpServers": {
+    "vmrc": {
+      "command": "vmrc",
+      "args": ["mcp"]
+    }
+  }
+}
+```
+
+| Tool | Arguments | Returns |
+|---|---|---|
+| `vmrc_ls` | — | agents: name, DNS name, OS, online |
+| `vmrc_exec` | `vm`, `command`, `timeout_seconds?` | combined stdout+stderr and exit code (non-zero exit is a normal result) |
+| `vmrc_screenshot` | `vm` | the screen as a PNG image the model can see |
+| `vmrc_click` | `vm`, `x`, `y`, `button?` (left/right/middle), `double?` | confirmation |
+| `vmrc_type` | `vm`, `text` | confirmation (does not press Enter) |
+| `vmrc_key` | `vm`, `combo` (e.g. `Enter`, `Ctrl+C`) | confirmation |
+| `vmrc_get` | `vm`, `remote_path`, `local_path?` | with `local_path`: writes the file atomically on the host; without: the content as text (UTF-8, ≤ 1 MiB) |
+| `vmrc_put` | `vm`, `remote_path`, and exactly one of `local_path` / `content` | bytes uploaded |
+
+Agent-side failures (unknown VM, `403`, unreachable) come back as tool errors the model can
+read and act on; they never take the server down. Self-update is **deliberately not exposed**
+as a tool — replacing agent binaries stays an operator action (`vmrc update`). The MCP server
+logs every tool call to stderr; stdout carries only the protocol.
+
+> [!CAUTION]
+> An MCP client with these tools has the same power as you at the CLI: arbitrary command
+> execution and GUI control on every agent your tailnet identity can reach. Review tool calls
+> (keep your client's per-tool approval on) and scope `--tag` to the VMs the agent should touch.
 
 ---
 
@@ -347,6 +399,7 @@ make snapshot-host   # just your host
 | [ARCHITECTURE.md](./ARCHITECTURE.md) | Technical design: agent, tunnel, service, host CLI, endpoints, security |
 | [CONTRIBUTING.md](./CONTRIBUTING.md) | How to build, test, lint, and contribute |
 | [.claude/skills/vmrc-cli/SKILL.md](./.claude/skills/vmrc-cli/SKILL.md) | The Claude Code skill: drive a VM fleet via the CLI |
+| [README → MCP](#use-with-claude-code--mcp-clients) | `vmrc mcp`: the fleet verbs as MCP tools |
 | [docs/testing-on-a-vm.md](./docs/testing-on-a-vm.md) | End-to-end Windows VM test walkthrough |
 | [docs/runbook-windows.md](./docs/runbook-windows.md) | Windows install/enroll/operate runbook |
 
