@@ -126,31 +126,31 @@ func TestValidate(t *testing.T) {
 	}{
 		{
 			name: "valid config",
-			cfg:  Config{StateDir: "/var/lib/vmrc/state", BaseDir: "/var/lib/vmrc/files", ReadGlobs: []string{"*.log"}, ListenPort: 47800},
+			cfg:  Config{StateDir: testAbs("/var/lib/vmrc/state"), BaseDir: testAbs("/var/lib/vmrc/files"), ReadGlobs: []string{"*.log"}, ListenPort: 47800},
 		},
 		{
 			name:    "relative base dir",
-			cfg:     Config{StateDir: "/abs/state", BaseDir: "rel/files", ReadGlobs: []string{"*.log"}, ListenPort: 47800},
+			cfg:     Config{StateDir: testAbs("/abs/state"), BaseDir: "rel/files", ReadGlobs: []string{"*.log"}, ListenPort: 47800},
 			wantErr: "base_dir must be an absolute path",
 		},
 		{
 			name:    "relative state dir",
-			cfg:     Config{StateDir: "rel/state", BaseDir: "/abs/files", ReadGlobs: []string{"*.log"}, ListenPort: 47800},
+			cfg:     Config{StateDir: "rel/state", BaseDir: testAbs("/abs/files"), ReadGlobs: []string{"*.log"}, ListenPort: 47800},
 			wantErr: "state_dir must be an absolute path",
 		},
 		{
 			name:    "port too low",
-			cfg:     Config{StateDir: "/abs/state", BaseDir: "/abs/files", ReadGlobs: []string{"*.log"}, ListenPort: 0},
+			cfg:     Config{StateDir: testAbs("/abs/state"), BaseDir: testAbs("/abs/files"), ReadGlobs: []string{"*.log"}, ListenPort: 0},
 			wantErr: "listen_port",
 		},
 		{
 			name:    "port too high",
-			cfg:     Config{StateDir: "/abs/state", BaseDir: "/abs/files", ReadGlobs: []string{"*.log"}, ListenPort: 70000},
+			cfg:     Config{StateDir: testAbs("/abs/state"), BaseDir: testAbs("/abs/files"), ReadGlobs: []string{"*.log"}, ListenPort: 70000},
 			wantErr: "listen_port",
 		},
 		{
 			name:     "empty read globs warns but is valid",
-			cfg:      Config{StateDir: "/abs/state", BaseDir: "/abs/files", ReadGlobs: nil, ListenPort: 47800},
+			cfg:      Config{StateDir: testAbs("/abs/state"), BaseDir: testAbs("/abs/files"), ReadGlobs: nil, ListenPort: 47800},
 			wantWarn: true,
 		},
 		{

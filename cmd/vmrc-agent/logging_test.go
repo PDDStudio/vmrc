@@ -21,11 +21,22 @@ func restoreLogger(t *testing.T) {
 	})
 }
 
+// setupTestLogging calls setupLogging and closes the log file at test end:
+// Windows can't remove an open file, so t.TempDir cleanup would fail.
+func setupTestLogging(t *testing.T, path, banner string) error {
+	t.Helper()
+	rf, err := setupLogging(path, banner)
+	if rf != nil {
+		t.Cleanup(func() { _ = rf.Close() })
+	}
+	return err
+}
+
 func TestSetupLoggingWritesBannerAndCreatesDir(t *testing.T) {
 	restoreLogger(t)
 	path := filepath.Join(t.TempDir(), "logs", "agent.log") // parent dir missing on purpose
 
-	if _, err := setupLogging(path, "BANNER-XYZ"); err != nil {
+	if err := setupTestLogging(t, path, "BANNER-XYZ"); err != nil {
 		t.Fatalf("setupLogging err = %v", err)
 	}
 	log.Print("after-setup-line")
@@ -47,10 +58,10 @@ func TestSetupLoggingAppends(t *testing.T) {
 	restoreLogger(t)
 	path := filepath.Join(t.TempDir(), "agent.log")
 
-	if _, err := setupLogging(path, "FIRST"); err != nil {
+	if err := setupTestLogging(t, path, "FIRST"); err != nil {
 		t.Fatalf("first setupLogging err = %v", err)
 	}
-	if _, err := setupLogging(path, "SECOND"); err != nil {
+	if err := setupTestLogging(t, path, "SECOND"); err != nil {
 		t.Fatalf("second setupLogging err = %v", err)
 	}
 	b, _ := os.ReadFile(path)
@@ -63,7 +74,7 @@ func TestSetupLoggingAppends(t *testing.T) {
 func TestSetupLoggingTeesToStderrWriter(t *testing.T) {
 	restoreLogger(t)
 	path := filepath.Join(t.TempDir(), "agent.log")
-	if _, err := setupLogging(path, "x"); err != nil {
+	if err := setupTestLogging(t, path, "x"); err != nil {
 		t.Fatalf("setupLogging err = %v", err)
 	}
 	// After setup, the global writer must be a MultiWriter (not the bare file),

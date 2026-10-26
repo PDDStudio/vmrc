@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
@@ -19,6 +20,10 @@ func TestDefaultPaths(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.goos, func(t *testing.T) {
 			p := defaultPaths(tt.goos)
+			if tt.goos != "windows" {
+				// defaultPaths joins with the host separator.
+				tt.wantConfig, tt.wantState, tt.wantBase = filepath.FromSlash(tt.wantConfig), filepath.FromSlash(tt.wantState), filepath.FromSlash(tt.wantBase)
+			}
 			if p.ConfigPath != tt.wantConfig {
 				t.Errorf("ConfigPath = %q, want %q", p.ConfigPath, tt.wantConfig)
 			}
@@ -74,6 +79,9 @@ func TestEnsureDirsCreatesMissing(t *testing.T) {
 	if err != nil {
 		t.Fatalf("state dir not created: %v", err)
 	}
+	if runtime.GOOS == "windows" {
+		return // mode bits don't apply; Windows access is governed by DACLs
+	}
 	if st.Mode().Perm() != 0o700 {
 		t.Errorf("state dir perm = %o, want 700", st.Mode().Perm())
 	}
@@ -98,13 +106,13 @@ func TestEnsureDirsIdempotent(t *testing.T) {
 }
 
 func TestRequireAbsPaths(t *testing.T) {
-	if err := RequireAbsPaths(Config{StateDir: "/abs/state", BaseDir: "/abs/files"}); err != nil {
+	if err := RequireAbsPaths(Config{StateDir: testAbs("/abs/state"), BaseDir: testAbs("/abs/files")}); err != nil {
 		t.Errorf("absolute paths should pass, got %v", err)
 	}
-	if err := RequireAbsPaths(Config{StateDir: "relative/state", BaseDir: "/abs"}); err == nil {
+	if err := RequireAbsPaths(Config{StateDir: "relative/state", BaseDir: testAbs("/abs")}); err == nil {
 		t.Error("relative state_dir must be rejected")
 	}
-	if err := RequireAbsPaths(Config{StateDir: "/abs", BaseDir: "relative"}); err == nil {
+	if err := RequireAbsPaths(Config{StateDir: testAbs("/abs"), BaseDir: "relative"}); err == nil {
 		t.Error("relative base_dir must be rejected")
 	}
 }

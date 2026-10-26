@@ -36,7 +36,10 @@ func resolveWith(t *testing.T, flags []cli.Flag, args []string, fileJSON string)
 }
 
 func TestRetentionAndLogKeyPrecedence(t *testing.T) {
-	abs := func(p string) string { return filepath.Join(string(filepath.Separator)+"abs", p) }
+	// An absolute path on every OS (on Windows it needs a volume, e.g. C:\abs).
+	abs := func(p string) string {
+		return filepath.Join(filepath.VolumeName(os.TempDir())+string(filepath.Separator)+"abs", p)
+	}
 	baseJSON := `"state_dir":` + jsonStr(abs("state")) + `,"base_dir":` + jsonStr(abs("files")) + `,"read_globs":["*.log"]`
 	tests := []struct {
 		name  string

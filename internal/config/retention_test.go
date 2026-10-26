@@ -133,7 +133,7 @@ func TestDurationJSONRoundTrip(t *testing.T) {
 func TestValidateRetentionAndLogKeys(t *testing.T) {
 	valid := func() Config {
 		c := Defaults()
-		c.StateDir, c.BaseDir, c.ReadGlobs = "/abs/state", "/abs/files", []string{"*.log"}
+		c.StateDir, c.BaseDir, c.ReadGlobs = testAbs("/abs/state"), testAbs("/abs/files"), []string{"*.log"}
 		return c
 	}
 	tests := []struct {
