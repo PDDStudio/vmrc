@@ -51,6 +51,49 @@ The dependency set is deliberately small (`tsnet`, `kardianos/service`,
 `kbinani/screenshot`, `urfave/cli/v3`, `golang.org/x/sys`). **Open an issue
 before adding a new dependency.**
 
+## Release signing key
+
+Releases sign `checksums.txt` with an ed25519 key, and the binaries refuse any
+self-update that isn't signed by a public key in `internal/selfupdate/keys/*.pub`
+(see [SECURITY.md](./SECURITY.md#release-signing)). Until a key is committed, release
+builds can't self-update, and `release.yml` won't cut a release.
+
+**One-time setup** (maintainer). Run from the repo root with `gh` authenticated:
+
+```sh
+go run ./tools/releasesign keygen -pub internal/selfupdate/keys/release.pub | gh secret set VMRC_RELEASE_SIGNING_KEY
+git add internal/selfupdate/keys/release.pub   # commit the PUBLIC key via a PR
+```
+
+`keygen` writes only the public key to disk. It prints the private key (a base64
+seed) to stdout, which the pipe feeds straight into the repository secret, so the
+private key never touches disk or your screen. `keygen` refuses to print to a terminal
+unless you pass `--force-tty`, and refuses to overwrite an existing `.pub` file. Keep an
+offline backup of the private key only if you want one. Losing it just means rotating.
+
+On release, goreleaser runs `go run ./tools/releasesign sign` with the secret in its
+environment. `release.yml` first checks, before tagging, that the secret is set and
+matches a committed public key.
+
+**Planned rotation.** Every `.pub` file is trusted, so the new key goes in alongside
+the old one:
+
+1. Generate the next key under a **new** file name. Pipe the private key into your
+   password manager's CLI for now, and leave the secret alone:
+   `go run ./tools/releasesign keygen -pub internal/selfupdate/keys/release-2.pub | <store-in-password-manager>`
+2. Commit `release-2.pub` next to the old `release.pub` and cut a release. The old key
+   still signs it, and binaries that install it trust both keys.
+3. Once your installs run that build, switch the secret:
+   `<read-from-password-manager> | gh secret set VMRC_RELEASE_SIGNING_KEY`.
+   From then on the new key signs releases.
+4. Delete the old `release.pub` in a later release.
+
+**Compromised key.** Generate the replacement straight into the secret
+(`keygen -pub internal/selfupdate/keys/release-2.pub | gh secret set VMRC_RELEASE_SIGNING_KEY`),
+delete the compromised `.pub` in the same commit, and release. Binaries that trust only
+the compromised key can't verify the new release, by design. Reinstall those with
+`scripts/install.sh` or `install.ps1`.
+
 ## Platforms
 
 Targets are Windows, Linux, and macOS. Screen capture has platform caveats —
