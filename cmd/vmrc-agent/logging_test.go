@@ -79,7 +79,7 @@ func TestSetupLoggingIsOwnerOnly(t *testing.T) {
 	restoreLogger(t)
 	dir := filepath.Join(t.TempDir(), "logs")
 	path := filepath.Join(dir, "agent.log")
-	if _, err := setupLogging(path, "x"); err != nil {
+	if err := setupTestLogging(t, path, "x"); err != nil {
 		t.Fatalf("setupLogging: %v", err)
 	}
 	if st, err := os.Stat(dir); err != nil || st.Mode().Perm() != 0o700 {
@@ -103,7 +103,7 @@ func TestSetupLoggingTightensExistingFile(t *testing.T) {
 	if err := os.Chmod(path, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := setupLogging(path, "x"); err != nil {
+	if err := setupTestLogging(t, path, "x"); err != nil {
 		t.Fatalf("setupLogging: %v", err)
 	}
 	if st, _ := os.Stat(path); st.Mode().Perm() != 0o600 {
