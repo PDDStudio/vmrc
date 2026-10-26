@@ -17,7 +17,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -344,14 +343,6 @@ func (s *Server) handleRead(w http.ResponseWriter, r *http.Request) {
 	}
 	s.logf("read   -> %s", rel)
 	http.ServeFile(w, r, full)
-}
-
-// shellCommand wraps a command line in the platform shell.
-func shellCommand(ctx context.Context, cmdline string) *exec.Cmd {
-	if runtime.GOOS == "windows" {
-		return exec.CommandContext(ctx, "cmd", "/c", cmdline)
-	}
-	return exec.CommandContext(ctx, "sh", "-c", cmdline)
 }
 
 // setWorkdir points the command at the base dir if it's a real directory.
