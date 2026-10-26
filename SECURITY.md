@@ -44,6 +44,20 @@ expected behavior:
   binary.
 - **File access is bounded** to `base_dir` and, for reads, to a configured glob
   allowlist; path-traversal escapes are treated as bugs.
+- **Command lines are logged.** The agent's request log records the full
+  command line of every `exec`/`spawn` (operator visibility is a feature), so
+  anything typed on a remote command line — including credentials — ends up
+  in it. The log is owner-only (`0600` in a `0700` dir; on Windows inside the
+  admin-only install directory); Linux system mode writes it to
+  `/var/log/vmrc/agent.log`.
+- **Install locations are admin-only where the agent runs privileged.** On
+  Windows, `C:\ProgramData\vmrc` (system mode: tailnet node key, config, log,
+  binary) carries a protected DACL granting only SYSTEM and Administrators,
+  and an elevated user-mode logon task launches its binary and config from
+  `C:\ProgramData\vmrc\users\<user>` (same DACL plus read for that user). The
+  agent re-applies these on every start. A non-admin local account being able
+  to read the node key, or to change what an elevated/SYSTEM agent executes,
+  is in scope.
 
 A report that demonstrates a way to bypass any of the above — unauthenticated
 access, escaping `base_dir`, leaking a secret, or reaching the agent off-tailnet

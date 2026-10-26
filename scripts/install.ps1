@@ -123,4 +123,6 @@ if ($Binary -eq 'vmrc-agent') {
     Write-Host "Next: enroll this VM on your tailnet and install the boot service"
     Write-Host "(run from an Administrator PowerShell):"
     Write-Host "  `$env:TS_AUTHKEY='tskey-...'; vmrc-agent setup"
+    Write-Host "(or 'vmrc-agent setup --no-elevate' for a logon task whose exec runs unelevated;"
+    Write-Host " that variant needs no Administrator rights)"
 }
