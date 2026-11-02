@@ -9,7 +9,7 @@ require (
 	github.com/modelcontextprotocol/go-sdk v1.8.0
 	github.com/urfave/cli/v3 v3.14.0
 	golang.org/x/sys v0.49.0
-	tailscale.com v1.104.2
+	tailscale.com v1.104.4
 )
 
 require (
